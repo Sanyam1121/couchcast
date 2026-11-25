@@ -172,6 +172,8 @@ details .box{max-width:560px}
         <label for="subFile">Subtitles (.srt or .vtt, optional)</label>
         <input id="subFile" type="file" accept=".srt,.vtt,text/vtt">
         <label class="check"><input type="checkbox" id="allowCtl"> Let friends play, pause and skip</label>
+        <label class="check"><input type="checkbox" id="hostSound" checked> Play sound on this computer</label>
+        <p class="hint" style="margin-top:0">Friends always get the sound. Turn this off when testing with a friend tab on the same computer, or the two copies overlap and sound hollow.</p>
         <div id="quality">
           <label for="mbps">Max quality per friend: <span id="mbpsOut">25</span> Mbps</label>
           <input id="mbps" type="range" min="4" max="80" step="1" value="25" style="width:100%">
@@ -477,6 +479,7 @@ function connectHost(){
     if($('room').style.display!=='grid'){enterRoom();addChat('','You joined the room.',true)}
     else addChat('','Reconnected.',true);
     hostConn.send({t:'join',n:myName});statusLine('Connected to host.');
+    try{bc&&bc.postMessage({code})}catch(e){}
   });
   hostConn.on('data',onViewerData);
   hostConn.on('close',()=>{if(!leaving)retryHost()});
@@ -617,6 +620,12 @@ $('subFile').onchange=async e=>{
   cues=parseSubs(await f.text());
   if(cues.length){toast(cues.length+' subtitle lines loaded');addChat('','Subtitles added: '+f.name,true)}else toast('No subtitles found in that file.');
 };
+$('hostSound').onchange=e=>{vid.muted=!e.target.checked};
+vid.addEventListener('volumechange',()=>{if(isHost)$('hostSound').checked=!vid.muted});
+/* Same-computer test: a friend tab in this browser tells the host tab, which mutes itself to stop the hollow double sound. */
+let bc=null;try{bc=new BroadcastChannel('couchcast');bc.onmessage=e=>{
+  if(isHost&&e.data&&e.data.code===code&&!vid.muted){vid.muted=true;addChat('','A friend tab is open on this computer, so sound here is muted to avoid an echo. Friends still hear it.',true)}
+}}catch(e){}
 $('allowCtl').onchange=e=>{allowCtl=e.target.checked;broadcast({t:'perm',on:allowCtl})};
 $('mbps').oninput=()=>$('mbpsOut').textContent=$('mbps').value;
 ['mbps','fps'].forEach(id=>$(id).addEventListener('change',()=>{for(const c of conns.values())if(c.call)boost(c.call)}));
