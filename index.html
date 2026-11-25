@@ -172,6 +172,7 @@ details .box{max-width:560px}
         <label for="subFile">Subtitles (.srt or .vtt, optional)</label>
         <input id="subFile" type="file" accept=".srt,.vtt,text/vtt">
         <label class="check"><input type="checkbox" id="allowCtl"> Let friends play, pause and skip</label>
+        <label class="check"><input type="checkbox" id="clearDlg" checked> Clearer dialogue (lift voices, tame loud music)</label>
         <label class="check"><input type="checkbox" id="hostSound" checked> Play sound on this computer</label>
         <p class="hint" style="margin-top:0">Friends always get the sound. Turn this off when testing with a friend tab on the same computer, or the two copies overlap and sound hollow.</p>
         <div id="quality">
@@ -395,12 +396,64 @@ function setMode(m){
   if(m==='stream'&&vid.src)makeStream();
   if(vid.src)broadcast(state());
 }
+/* ---------- Host sound mixer ----------
+   Movie files are often 5.1: dialogue lives on the CENTRE channel. A raw capture sends only
+   front-left/right to friends, so voices go faint while music stays loud. This mixer folds every
+   channel into proper stereo (centre included), optionally lifts voices and evens out loud/quiet
+   parts, then feeds both the friends' stream and the host's own speakers. */
+let mix=null;
+const hostAudio={on:true,muted:false,vol:1};
+function ensureMix(){
+  if(mix)return mix;
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
+  try{
+    const ac=new AC({sampleRate:48000,latencyHint:'playback'});
+    const src=ac.createMediaElementSource(vid);
+    // normalise any layout to 5.1 first: mono lands on centre, stereo on front L/R, 5.1 unchanged
+    const pre=ac.createGain();pre.channelCount=6;pre.channelCountMode='explicit';pre.channelInterpretation='speakers';
+    const sp=ac.createChannelSplitter(6);src.connect(pre);pre.connect(sp);
+    const L=ac.createGain(),R=ac.createGain(),mg=ac.createChannelMerger(2);
+    const add=(ch,to,g)=>{const n=ac.createGain();n.gain.value=g;sp.connect(n,ch);n.connect(to);return n};
+    // channel order (checked in Chrome): 0 FL, 1 FR, 2 Centre, 3 LFE, 4 SL, 5 SR
+    add(0,L,1);add(1,R,1);
+    const cL=add(2,L,.707),cR=add(2,R,.707);
+    add(3,L,.3);add(3,R,.3);
+    add(4,L,.6);add(5,R,.6);
+    L.connect(mg,0,0);R.connect(mg,0,1);
+    // clear-dialogue path: compressor evens out loud music vs quiet speech, then makeup gain
+    const dry=ac.createGain(),wet=ac.createGain(),comp=ac.createDynamicsCompressor(),makeup=ac.createGain();
+    comp.threshold.value=-26;comp.knee.value=12;comp.ratio.value=3.5;comp.attack.value=.006;comp.release.value=.25;makeup.gain.value=1.7;
+    mg.connect(dry);mg.connect(comp);comp.connect(makeup);makeup.connect(wet);
+    // final limiter stops the summed channels from clipping
+    const lim=ac.createDynamicsCompressor();lim.threshold.value=-2;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=.002;lim.release.value=.1;
+    dry.connect(lim);wet.connect(lim);
+    const dest=ac.createMediaStreamDestination();dest.channelCount=2;lim.connect(dest);
+    const local=ac.createGain();lim.connect(local);local.connect(ac.destination);
+    mix={ac,dest,local,cL,cR,dry,wet};
+    setClear($('clearDlg').checked);applyHostVol();
+    return mix;
+  }catch(e){console.warn('mixer',e);return null}
+}
+function setClear(on){
+  if(!mix)return;
+  const c=on?1.15:.707;mix.cL.gain.value=c;mix.cR.gain.value=c;
+  mix.dry.gain.value=on?0:1;mix.wet.gain.value=on?1:0;
+}
+function applyHostVol(){
+  if(!mix)return;
+  vid.muted=false;vid.volume=1;   // element feeds the mixer at full level; host loudness is set here
+  mix.local.gain.value=hostAudio.on&&!hostAudio.muted?hostAudio.vol:0;
+}
+function wakeAudio(){if(mix&&mix.ac.state!=='running')mix.ac.resume().catch(()=>{})}
 function makeStream(){
   const cap=vid.captureStream||vid.mozCaptureStream;
   if(!cap){toast('This browser cannot stream video. Use Chrome or Edge.');return}
-  stream=cap.call(vid);
+  const captured=cap.call(vid),m=ensureMix();
+  const audio=m?m.dest.stream.getAudioTracks():captured.getAudioTracks();
+  stream=new MediaStream([...captured.getVideoTracks(),...audio]);
   stream.getVideoTracks().forEach(t=>{try{t.contentHint='detail'}catch(e){}});
   stream.getAudioTracks().forEach(t=>{try{t.contentHint='music'}catch(e){}});
+  wakeAudio();
   for(const id of conns.keys())callViewer(id);
 }
 /* Many 4K files carry AC3/E-AC3/DTS 5.1 sound, which browsers cannot decode: silent for everyone. */
@@ -574,13 +627,14 @@ function tick(){
   $('tcur').textContent=fmt(c);$('tdur').textContent=fmt(d);
   if(!dragging)$('seek').value=d?Math.round(c/d*1000):0;
   const p=isPaused();$('ppIcon').setAttribute('d',p?PLAY:PAUSE);$('pp').setAttribute('aria-label',p?'Play':'Pause');
-  $('volIcon').setAttribute('d',vid.muted||vid.volume===0?VOL_OFF:VOL_ON);
+  const silent=isHost&&mix?(!hostAudio.on||hostAudio.muted||hostAudio.vol===0):(vid.muted||vid.volume===0);
+  $('volIcon').setAttribute('d',silent?VOL_OFF:VOL_ON);
   hostSubTick();
 }
 setInterval(tick,250);
 function togglePlay(){
   if(!canControl())return toast('Only the host can pause or play.');
-  if(isHost){if(!vid.src)return;vid.paused?vid.play().catch(()=>{}):vid.pause()}
+  if(isHost){if(!vid.src)return;wakeAudio();vid.paused?vid.play().catch(()=>{}):vid.pause()}
   else if(hostConn&&hostConn.open)hostConn.send({t:'ctl',a:'toggle'});
 }
 function seekTo(t){
@@ -620,11 +674,16 @@ $('subFile').onchange=async e=>{
   cues=parseSubs(await f.text());
   if(cues.length){toast(cues.length+' subtitle lines loaded');addChat('','Subtitles added: '+f.name,true)}else toast('No subtitles found in that file.');
 };
-$('hostSound').onchange=e=>{vid.muted=!e.target.checked};
-vid.addEventListener('volumechange',()=>{if(isHost)$('hostSound').checked=!vid.muted});
+$('hostSound').onchange=e=>{hostAudio.on=e.target.checked;if(mix)applyHostVol();else vid.muted=!hostAudio.on};
+$('clearDlg').onchange=e=>{setClear(e.target.checked);store.set('cc-clear',e.target.checked?'1':'0')};
+if(store.get('cc-clear')==='0')$('clearDlg').checked=false;
+vid.addEventListener('play',wakeAudio);
 /* Same-computer test: a friend tab in this browser tells the host tab, which mutes itself to stop the hollow double sound. */
 let bc=null;try{bc=new BroadcastChannel('couchcast');bc.onmessage=e=>{
-  if(isHost&&e.data&&e.data.code===code&&!vid.muted){vid.muted=true;addChat('','A friend tab is open on this computer, so sound here is muted to avoid an echo. Friends still hear it.',true)}
+  if(isHost&&e.data&&e.data.code===code&&hostAudio.on){
+    hostAudio.on=false;$('hostSound').checked=false;if(mix)applyHostVol();else vid.muted=true;
+    addChat('','A friend tab is open on this computer, so sound here is muted to avoid an echo. Friends still hear it.',true);
+  }
 }}catch(e){}
 $('allowCtl').onchange=e=>{allowCtl=e.target.checked;broadcast({t:'perm',on:allowCtl})};
 $('mbps').oninput=()=>$('mbpsOut').textContent=$('mbps').value;
@@ -638,8 +697,14 @@ setInterval(()=>{if(isHost&&vid.src)broadcast(state())},1500);
 $('pp').onclick=togglePlay;
 $('seek').addEventListener('input',()=>{dragging=true;$('tcur').textContent=fmt($('seek').value/1000*duration())});
 $('seek').addEventListener('change',()=>{dragging=false;seekTo($('seek').value/1000*duration())});
-$('vol').oninput=()=>{vid.volume=+$('vol').value;vid.muted=vid.volume===0};
-$('muteBtn').onclick=()=>{vid.muted=!vid.muted;if(!vid.muted&&vid.volume===0){vid.volume=1;$('vol').value=1}};
+$('vol').oninput=()=>{
+  if(isHost&&mix){hostAudio.vol=+$('vol').value;hostAudio.muted=hostAudio.vol===0;applyHostVol();return}
+  vid.volume=+$('vol').value;vid.muted=vid.volume===0;
+};
+$('muteBtn').onclick=()=>{
+  if(isHost&&mix){hostAudio.muted=!hostAudio.muted;if(!hostAudio.muted&&hostAudio.vol===0){hostAudio.vol=1;$('vol').value=1}applyHostVol();return}
+  vid.muted=!vid.muted;if(!vid.muted&&vid.volume===0){vid.volume=1;$('vol').value=1}
+};
 $('ccBtn').onclick=()=>{ccOn=!ccOn;$('ccBtn').classList.toggle('on',ccOn);setSub(curSub)};
 $('fsBtn').onclick=toggleFs;
 vid.addEventListener('dblclick',toggleFs);
