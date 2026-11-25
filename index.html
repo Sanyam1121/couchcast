@@ -279,7 +279,18 @@ function parseSubs(text){
 function subAt(t){for(const c of cues){if(c.s>t)break;if(t<=c.e)return c.t}return ''}
 
 /* ---------- SDP: prefer chosen codec ---------- */
+/* Movie-quality sound: stereo Opus at 510 kbps, no silence-skipping (DTX), loss recovery on */
+function tuneOpus(sdp){
+  const L=sdp.split('\r\n'),rm=L.find(l=>/^a=rtpmap:\d+ opus\/48000/i.test(l));if(!rm)return sdp;
+  const pt=rm.split(':')[1].split(' ')[0],want={stereo:'1','sprop-stereo':'1',maxaveragebitrate:'510000',maxplaybackrate:'48000',useinbandfec:'1',usedtx:'0',cbr:'0'};
+  const fi=L.findIndex(l=>l.startsWith('a=fmtp:'+pt+' '));
+  const cur={};if(fi>=0)L[fi].slice(('a=fmtp:'+pt+' ').length).split(';').forEach(kv=>{const [k,v]=kv.split('=');if(k)cur[k.trim()]=(v||'').trim()});
+  const line='a=fmtp:'+pt+' '+Object.entries({...cur,...want}).map(([k,v])=>k+'='+v).join(';');
+  if(fi>=0)L[fi]=line;else L.splice(L.indexOf(rm)+1,0,line);
+  return L.join('\r\n');
+}
 function preferCodec(sdp){
+  sdp=tuneOpus(sdp);
   const codec=$('codec').value;
   const L=sdp.split('\r\n'),mi=L.findIndex(l=>l.startsWith('m=video'));if(mi<0)return sdp;
   const pts=L.filter(l=>new RegExp('^a=rtpmap:\\d+ '+codec+'/','i').test(l)).map(l=>l.split(':')[1].split(' ')[0]);
@@ -360,6 +371,12 @@ async function boost(call){
       p.encodings[0].maxBitrate=mbps*1e6;p.encodings[0].maxFramerate=fps;p.encodings[0].scaleResolutionDownBy=1;
       p.degradationPreference='maintain-resolution';
       try{await s.setParameters(p)}catch(e){console.warn('setParameters',e)}
+      const a=pc.getSenders().find(x=>x.track&&x.track.kind==='audio');
+      if(a){
+        const ap=a.getParameters();if(!ap.encodings||!ap.encodings.length)ap.encodings=[{}];
+        ap.encodings[0].maxBitrate=510000;ap.encodings[0].priority='high';ap.encodings[0].networkPriority='high';
+        try{await a.setParameters(ap)}catch(e){console.warn('audio setParameters',e)}
+      }
       return;
     }
     await sleep(500);
@@ -381,13 +398,30 @@ function makeStream(){
   if(!cap){toast('This browser cannot stream video. Use Chrome or Edge.');return}
   stream=cap.call(vid);
   stream.getVideoTracks().forEach(t=>{try{t.contentHint='detail'}catch(e){}});
+  stream.getAudioTracks().forEach(t=>{try{t.contentHint='music'}catch(e){}});
   for(const id of conns.keys())callViewer(id);
 }
+/* Many 4K files carry AC3/E-AC3/DTS 5.1 sound, which browsers cannot decode: silent for everyone. */
+let audioChecked=false;
+vid.addEventListener('playing',()=>{
+  if(!isHost||audioChecked||!vid.src)return;audioChecked=true;
+  setTimeout(()=>{
+    const silent=('webkitAudioDecodedByteCount' in vid&&vid.webkitAudioDecodedByteCount===0)||(vid.audioTracks&&vid.audioTracks.length===0);
+    if(silent&&!vid.paused){
+      const m='This movie\'s sound format (often AC3/DTS 5.1 in 4K files) can\'t be played by browsers, so nobody will hear it. Convert the audio to AAC (see the README) or use another copy.';
+      toast('No sound found in this file');addChat('',m,true);
+    }
+  },3000);
+});
+document.addEventListener('visibilitychange',()=>{
+  if(isHost&&mode==='stream'&&stream&&conns.size&&!document.hidden)statusLine('Tip: keep this tab in front while streaming, or friends may get choppy picture and sound.');
+});
 function hostLoad(f){
   if(!f)return;
   if(!/^video\//.test(f.type)&&!/\.(mkv|mp4|mov|m4v|webm|avi)$/i.test(f.name)){toast('That does not look like a video file.');return}
   if(vid.src)URL.revokeObjectURL(vid.src);
   vid.srcObject=null;vid.src=URL.createObjectURL(f);emptyMsg('');
+  audioChecked=false;
   vid.onloadedmetadata=()=>{
     if(mode==='stream')makeStream();
     broadcast(state());updateControls();
@@ -425,7 +459,11 @@ function startJoin(){
     call.on('stream',s=>{
       if(mode!=='stream')return;
       if(vid.src){URL.revokeObjectURL(vid.src);vid.removeAttribute('src')}
-      vid.srcObject=s;emptyMsg('');
+      vid.srcObject=s;emptyMsg('');vid.muted=false;
+      if(vid.volume===0){vid.volume=1;$('vol').value=1}
+      // A bigger playout buffer trades ~half a second of delay for smooth, unbroken sound.
+      try{call.peerConnection.getReceivers().forEach(r=>{if('jitterBufferTarget' in r)r.jitterBufferTarget=500;else if('playoutDelayHint' in r)r.playoutDelayHint=0.5})}catch(e){}
+      if(!s.getAudioTracks().length)addChat('','No sound is coming from the host. Ask them to check the movie file has sound.',true);
       vid.play().catch(()=>{$('tap').style.display='grid'});
       watchStats(call);statusLine('Receiving the host\'s stream.');
     });
@@ -494,7 +532,7 @@ function viewerLoad(f){
   vid.onerror=()=>toast('Your browser cannot play this file. MP4 works best.');
 }
 function watchStats(call){
-  clearInterval(statTimer);let last=0,lastT=performance.now();
+  clearInterval(statTimer);let last=0,lastA=0,lastT=performance.now();
   statTimer=setInterval(async()=>{
     const pc=call.peerConnection;if(!pc)return;
     try{
@@ -502,12 +540,21 @@ function watchStats(call){
       r.forEach(s=>{
         if(s.type==='candidate-pair'&&s.state==='succeeded'&&s.nominated){const lc=r.get(s.localCandidateId);if(lc)route=lc.candidateType==='relay'?' · via relay':' · direct'}
       });
+      let vtxt='',atxt=' · no sound';
+      const now=performance.now(),dt=(now-lastT)/1000;
       r.forEach(s=>{
         if(s.type==='inbound-rtp'&&s.kind==='video'){
-          const now=performance.now(),mb=last?((s.bytesReceived-last)*8/((now-lastT)/1000)/1e6):0;last=s.bytesReceived;lastT=now;
-          $('stats').textContent=(s.frameWidth||'?')+'×'+(s.frameHeight||'?')+' · '+Math.round(s.framesPerSecond||0)+' fps · '+mb.toFixed(1)+' Mbps'+route;
+          const mb=last?((s.bytesReceived-last)*8/dt/1e6):0;last=s.bytesReceived;
+          vtxt=(s.frameWidth||'?')+'×'+(s.frameHeight||'?')+' · '+Math.round(s.framesPerSecond||0)+' fps · '+mb.toFixed(1)+' Mbps';
+        }
+        if(s.type==='inbound-rtp'&&s.kind==='audio'){
+          const kb=lastA?((s.bytesReceived-lastA)*8/dt/1e3):0;lastA=s.bytesReceived;
+          const gaps=s.totalSamplesReceived?Math.round(100*(s.concealedSamples||0)/s.totalSamplesReceived):0;
+          atxt=' · sound '+Math.round(kb)+' kbps'+(gaps>2?' ('+gaps+'% gaps)':'');
         }
       });
+      lastT=now;
+      $('stats').textContent=vtxt+atxt+route;
     }catch(e){}
   },2000);
 }

@@ -12,3 +12,10 @@ Watch movies together with friends. One person hosts and plays a movie file from
 Some networks (mobile data, strict routers) block direct connections. Add a TURN relay (for example a free metered.ca account) in `window.COUCHCAST_TURN` near the top of `index.html`, or under "Connection settings" on the start page.
 
 Use Chrome or Edge. Only stream movies you have the rights to share.
+
+## No sound, or bad sound?
+- **Silent for everyone (host too):** many 4K movie files use AC3 / E-AC3 / DTS 5.1 audio, which browsers can't play. Convert just the audio to AAC (the video is copied, so it's quick and keeps 4K):
+  ```
+  ffmpeg -i movie.mkv -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -b:a 320k -ac 2 movie-fixed.mp4
+  ```
+- **Choppy sound for friends:** keep the host's Couchcast tab in front while streaming, and lower "Max quality per friend" if the host's upload is weak. Friends can click "Show connection stats" to see sound bitrate and gaps.
