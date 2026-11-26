@@ -20,6 +20,14 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Same-file check**: in *Everyone has the file* mode, Couchcast checks each friend picked the same file as the host and flags a different version.
 - **Subtitle finder**: search by movie name (one-click with a free OpenSubtitles key saved on your device, otherwise links to subtitle sites); .zip subtitle files work too.
 - **Movie nights**: plan a time, share an invite with a live countdown and calendar buttons; friends' pages join on their own when the host opens the room.
+- **Connection check**: "Test my connection" on the start page tells a friend before movie night whether direct connections work, whether the relay works, and roughly how fast their internet is.
+- **Permanent room link**: tick "Use my permanent room link" and your room has the same code every time, so friends can bookmark it.
+- **Phone remote**: "Phone remote" shows a QR code; scan it and your phone controls that screen (play, pause, skip, volume, subtitles, reactions).
+- **Fullscreen chat & picture-in-picture**: messages float over the movie in fullscreen and you can type there (Enter or the chat button); the PiP button pops the movie out into a small window.
+- **Best moments**: the scenes that got the most reactions are listed with a Jump button.
+- **Skip intro & credits**: mark them once per series; everyone with control gets Skip intro / Next episode on every episode.
+- **Watchlist**: titles friends add are kept on the host's device between movie nights and feed the vote.
+- **Hindi and Punjabi**: switch the language from the header.
 - **Chat, reactions, subtitles** (.srt/.vtt shown to everyone), invite links, connection stats.
 - **Install as an app** on phones and computers (Install button in the header; on iPhone: Share → Add to Home Screen).
 
@@ -34,5 +42,7 @@ Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connecti
   ```
 - **Choppy sound for friends:** keep the host's Couchcast tab in front while streaming, and lower "Max quality per friend" if the host's upload is weak. Friends can click "Show connection stats" to see sound bitrate and gaps.
 - **Voice chat echo:** use hold-to-talk, or wear headphones with open mic.
+
+Code layout: `index.html` (page), `style.css` (look), `app.js` (everything else), `sw.js` (install/offline), `manifest.webmanifest` + icons (app install).
 
 Use Chrome or Edge on a computer to host. Only stream movies you have the rights to share.
