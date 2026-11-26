@@ -35,6 +35,9 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Laser pointer** — press 🔦 (or **L**) and tap the movie to show everyone a dot in your colour.
 - **Avatars and colours** — pick an emoji and a name colour on the start page; they show in chat, the people list and talk labels.
 - **Soundboard** — press 🔊 under the player for six short sounds everyone hears (drumroll, ba-dum-tss, applause, air horn, sad trombone, boing). Anyone can turn the sounds off or lower them just for themselves. The sounds are made in the browser, never go into the movie stream, and can be played once every 1.5 seconds.
+- **Movie roulette** — press **🎡 Spin the wheel** under *Up next & watchlist*. A wheel of everything on the list spins on everyone's screen, with ticking sounds, and lands on tonight's movie. The host can play it right away if it's in the queue.
+- **Spoiler shield** — press 🙈 before sending, wrap words in `||double bars||`, or start a message with "spoiler", and it stays blurred until each person taps it. On the TV and fullscreen chat it only shows "🙈 spoiler".
+- **Couch seats** — a sofa under the player shows everyone's avatar. Everyone gets a seat when they join; tap a free seat to move. Reactions and soundboard sounds pop up above the seat of whoever sent them, and the seat glows when they talk.
 
 ## If a friend can't connect (stuck at "Connecting…")
 Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. Couchcast says so after 15 seconds instead of waiting forever. The fix is a relay server (a free ExpressTURN account gives 1 TB a month):

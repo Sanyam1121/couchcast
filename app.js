@@ -215,13 +215,13 @@ function setDuck(down){
 }
 
 /* ---------- chat & people ---------- */
-function addChat(n,m,sys,av,col){
+function addChat(n,m,sys,av,col,sp){
   av=cleanAv(av);col=cleanCol(col);
   const d=document.createElement('div'),tm='<time>'+clock()+'</time>',who=(av?'<span class="av">'+av+'</span>':'')+'<b'+(col?' style="color:'+col+'"':'')+'>'+esc(n)+':</b> ';
-  if(sys){d.className='sys';d.innerHTML=tm+esc(m)}else d.innerHTML=tm+who+esc(m);
+  if(sys){d.className='sys';d.innerHTML=tm+esc(m)}else d.innerHTML=tm+who+fmtMsg(m,sp);
   const box=$('chat');box.appendChild(d);while(box.children.length>300)box.firstChild.remove();box.scrollTop=1e9;
   if(document.body.classList.contains('tv')||document.fullscreenElement===stage){
-    const t=document.createElement('div');t.innerHTML=sys?esc(m):who+esc(m);
+    const t=document.createElement('div');t.innerHTML=sys?esc(m):who+(hasSpoiler(m,sp)?'🙈 <i>spoiler</i>':esc(m));
     const tc=$('tvchat');tc.appendChild(t);while(tc.children.length>3)tc.firstChild.remove();setTimeout(()=>t.remove(),9000);
   }
 }
@@ -233,6 +233,7 @@ function renderPeople(){
     return '<div class="person'+(p.id===mine?' me':'')+(speaking.has(p.id)?' speaking':'')+'" data-id="'+esc(p.id)+'">'+(p.mic?MIC_SVG:'')+(p.av?'<span class="av">'+esc(p.av)+'</span>':'')+'<span class="nm"'+(p.col?' style="color:'+p.col+'"':'')+'>'+esc(p.name)+'</span>'+(p.host?'<span class="tag">host</span>':'')+(extra?'<span class="tag">'+esc(extra)+'</span>':'')+acts+'</div>';
   }).join('');
   document.querySelectorAll('#cams figure:not(.self)').forEach(f=>{const c=f.querySelector('figcaption');if(c)c.textContent=nameOf(f.dataset.id)});
+  renderCouch();
 }
 function setNow(t){title=t||'';$('now').textContent=title?'Now playing: '+title:''}
 function setSub(t){curSub=t||'';$('subs').innerHTML=ccOn&&curSub?'<span>'+esc(curSub)+'</span>':''}
@@ -385,7 +386,7 @@ function dropViewer(id){
 }
 function broadcast(o,except){for(const [id,{conn,name,remote:rm}] of conns)if(conn.open&&id!==except&&name!=='…'&&(!rm||['sync','title'].includes(o.t)))conn.send(o)}
 function pushPeople(){
-  people=[{id:myId(),name:myName,host:true,mic:voice.on,av:myLook.av,col:myLook.col},...[...conns.entries()].filter(([,c])=>c.name!=='…'&&!c.remote).map(([id,c])=>({id,name:c.name,mic:c.mic,av:c.av||'',col:c.col||'',via:c.parent&&conns.get(c.parent)?conns.get(c.parent).name:'',q:mode==='stream'&&(c.call||c.parent)?(c.q||''):'',match:mode==='sync'?(c.match||''):''}))];
+  people=[{id:myId(),name:myName,host:true,mic:voice.on,av:myLook.av,col:myLook.col,seat:mySeat},...[...conns.entries()].filter(([,c])=>c.name!=='…'&&!c.remote).map(([id,c])=>({id,name:c.name,mic:c.mic,av:c.av||'',col:c.col||'',seat:c.seat>=0?c.seat:-1,via:c.parent&&conns.get(c.parent)?conns.get(c.parent).name:'',q:mode==='stream'&&(c.call||c.parent)?(c.q||''):'',match:mode==='sync'?(c.match||''):''}))];
   renderPeople();broadcast({t:'people',list:people});voiceSyncCalls();camSync();
 }
 function state(){return{t:'sync',p:M.paused(),c:M.time(),d:M.dur(),live:M.live()}}
@@ -408,7 +409,7 @@ function onHostData(conn,d){
         if(roomPw&&String(d.pw||'')!==roomPw)return deny(conn,'password');
       }
     }
-    c.name=nm;c.helper=!!d.helper;c.av=cleanAv(d.av);c.col=cleanCol(d.col);c.health='ok';c.stallSince=0;c.ignore=false;away.delete(nm);
+    c.name=nm;c.helper=!!d.helper;c.av=cleanAv(d.av);c.col=cleanCol(d.col);if(!(c.seat>=0))c.seat=freeSeat(conn.peer);c.health='ok';c.stallSince=0;c.ignore=false;away.delete(nm);
     if(!c.back)addChat('',c.name+' joined',true);
     conn.send({t:'hello',mode,ctl:allowCtl,title,sub:curSub,link:mode==='link'?link:null,fi:fileInfo,votes:voteItems(),marks,moments:momentsList});
     if(M.ok())conn.send(state());
@@ -419,13 +420,15 @@ function onHostData(conn,d){
   if(c.name==='…')return;   // not admitted yet
   if(c.remote){if(d.t==='rc')hostRemote(c,d);return}
   if(d.t==='pairtoken'){const k=String(d.k||'').slice(0,20);if(k)remoteTokens.set(k,conn.peer)}
-  if(d.t==='chat'){const m=String(d.m||'').slice(0,300);if(!m)return;addChat(c.name,m,false,c.av,c.col);broadcast({t:'chat',n:c.name,m,av:c.av,col:c.col})}
+  if(d.t==='chat'){const m=String(d.m||'').slice(0,300);if(!m)return;const sp=!!d.sp;addChat(c.name,m,false,c.av,c.col,sp);broadcast({t:'chat',n:c.name,m,av:c.av,col:c.col,sp})}
+  if(d.t==='seat'){if(!hostSeat(conn.peer,d.i))conn.send({t:'seatno'})}
+  if(d.t==='spin'){hostSpin(avName({av:c.av,name:c.name}))}
   if(d.t==='look'){c.av=cleanAv(d.av);c.col=cleanCol(d.col);pushPeople()}
   if(d.t==='health'){const st=d.s==='stall'?'stall':'ok';if(st!==c.health){c.health=st;c.stallSince=st==='stall'?performance.now():0;if(st==='ok')c.ignore=false}}
   if(d.t==='bye'){c.bye=true}
   if(d.t==='laser'&&isFinite(d.x)&&isFinite(d.y)){const x=+d.x,y=+d.y,n=avName({av:c.av,name:c.name});showLaser(x,y,n,c.col);broadcast({t:'laser',x,y,n,col:c.col},conn.peer)}
-  if(d.t==='react'){const e=String(d.e||'').slice(0,4);noteMoment(e);popReaction(e);broadcast({t:'react',e},conn.peer)}
-  if(d.t==='sfx'&&SFX[d.k]){const now=performance.now();if(now-(c.sfxAt||0)<1200)return;c.sfxAt=now;const n=avName({av:c.av,name:c.name});playSfx(d.k);showSfx(d.k,n);broadcast({t:'sfx',k:d.k,n},conn.peer)}
+  if(d.t==='react'){const e=String(d.e||'').slice(0,4);noteMoment(e);popReaction(e);seatPop(conn.peer,e);broadcast({t:'react',e,id:conn.peer},conn.peer)}
+  if(d.t==='sfx'&&SFX[d.k]){const now=performance.now();if(now-(c.sfxAt||0)<1200)return;c.sfxAt=now;const n=avName({av:c.av,name:c.name});playSfx(d.k);showSfx(d.k,n);seatPop(conn.peer,SFX[d.k].i);broadcast({t:'sfx',k:d.k,n,id:conn.peer},conn.peer)}
   if(d.t==='mic'){c.mic=!!d.on;pushPeople()}
   if(d.t==='helper'){c.helper=!!d.on}
   if(d.t==='match'){c.match=['same','close','diff'].includes(d.v)?d.v:'';pushPeopleSoon()}
@@ -706,11 +709,13 @@ function onViewerData(d){
       bounce(d.why==='password'?($('joinPw').value?'Wrong room password. Ask the host for it.':'This room has a password. Ask the host for it and type it in.'):d.why==='locked'?'The host has locked this room.':'The host removed you from this room.',d.why==='password');break;
     case 'kicked':bounce('The host removed you from this room.');break;
     case 'hello':admitted();marks=cleanMarks(d.marks);momentsList=cleanMoments(d.moments);renderMoments();setNow(d.title);setSub(d.sub);hostFi=d.fi&&typeof d.fi==='object'?{fp:String(d.fi.fp)}:null;applyMode(d.mode,cleanLink(d.link));allowCtl=!!d.ctl;updateControls();renderVotes(cleanVotes(d.votes));break;
-    case 'chat':addChat(d.n,d.m,false,d.av,d.col);break;
-    case 'sfx':if(SFX[d.k]){playSfx(d.k);showSfx(d.k,String(d.n||'').slice(0,30))}break;
+    case 'chat':addChat(d.n,d.m,false,d.av,d.col,!!d.sp);break;
+    case 'spin':if(Array.isArray(d.names)&&d.names.length>=2&&d.names.length<=24&&Number.isInteger(d.i)&&d.i>=0&&d.i<d.names.length)showWheel(d.names.map(x=>String(x).slice(0,60)),d.i,Math.max(0,Math.min(1,+d.j||0)),String(d.by||'').slice(0,30));break;
+    case 'seatno':toast('That seat is taken.');break;
+    case 'sfx':if(SFX[d.k]){playSfx(d.k);showSfx(d.k,String(d.n||'').slice(0,30));seatPop(d.id,SFX[d.k].i)}break;
     case 'laser':if(isFinite(d.x)&&isFinite(d.y))showLaser(+d.x,+d.y,String(d.n||'').slice(0,30),cleanCol(d.col));break;
     case 'wait':showWait(Array.isArray(d.names)?d.names.map(n=>String(n).slice(0,24)).slice(0,10):[]);break;
-    case 'people':people=Array.isArray(d.list)?d.list.filter(p=>p&&typeof p==='object').map(p=>({id:String(p.id),name:String(p.name).slice(0,24),host:!!p.host,mic:!!p.mic,av:cleanAv(p.av),col:cleanCol(p.col),via:String(p.via||'').slice(0,24),q:String(p.q||'').slice(0,8),match:String(p.match||'').slice(0,6)})):[];renderPeople();voiceSyncCalls();camSync();break;
+    case 'people':people=Array.isArray(d.list)?d.list.filter(p=>p&&typeof p==='object').map(p=>({id:String(p.id),name:String(p.name).slice(0,24),host:!!p.host,mic:!!p.mic,av:cleanAv(p.av),col:cleanCol(p.col),via:String(p.via||'').slice(0,24),q:String(p.q||'').slice(0,8),match:String(p.match||'').slice(0,6),seat:Number.isInteger(p.seat)&&p.seat>=0&&p.seat<16?p.seat:-1})):[];renderPeople();voiceSyncCalls();camSync();break;
     case 'mode':applyMode(d.mode,cleanLink(d.link));break;
     case 'link':link=cleanLink(d.link);if(mode==='link')showLink();break;
     case 'votes':renderVotes(cleanVotes(d.items));break;
@@ -728,7 +733,7 @@ function onViewerData(d){
     case 'title':setNow(d.title);if(mode==='sync')autoPick();break;
     case 'queue':renderUpNext(Array.isArray(d.list)?d.list.map(String):[]);break;
     case 'sub':setSub(d.x);break;
-    case 'react':popReaction(String(d.e).slice(0,4));break;
+    case 'react':popReaction(String(d.e).slice(0,4));seatPop(d.id,String(d.e).slice(0,4));break;
     case 'hostChange':addChat('',String(d.name).slice(0,24)+' is taking over as host. Hang on a few seconds…',true);statusLine('Switching host…');retries=0;break;
     case 'becomeHost':
       leaving=true;
@@ -940,7 +945,7 @@ setInterval(()=>{
   setDuck(now-lastVoiceAt<700);
   const after=[...speaking].join();
   if(after!==before){
-    document.querySelectorAll('.person,#cams figure').forEach(el=>el.classList.toggle('speaking',speaking.has(el.dataset.id)));
+    document.querySelectorAll('.person,#cams figure,#couch .seat.full').forEach(el=>el.classList.toggle('speaking',speaking.has(el.dataset.id)));
     const names=people.filter(p=>speaking.has(p.id)&&p.id!==myId()).map(avName);
     const key=names.join();if(key!==talkerKey){talkerKey=key;$('talkers').innerHTML=names.map(n=>'<span>'+esc(n)+' is talking</span>').join('')}
   }
@@ -1464,7 +1469,7 @@ function localRemoteAction(a){
 }
 function hostRemote(c,d){
   const a=String(d.a||''),target=c.for;
-  if(a==='react'){const e=String(d.e||'').slice(0,4);noteMoment(e);popReaction(e);broadcast({t:'react',e});return}
+  if(a==='react'){const e=String(d.e||'').slice(0,4);noteMoment(e);popReaction(e);seatPop(target,e);broadcast({t:'react',e,id:target});return}
   if(['toggle','back','fwd'].includes(a)){
     if(!(target===myId()||allowCtl)||!M.ok()||M.live())return;
     if(a==='toggle'){M.paused()?M.play():M.pause()}
@@ -1476,10 +1481,10 @@ function hostRemote(c,d){
 }
 
 /* ---------- chat while in fullscreen ---------- */
-function sendChat(m){
-  m=String(m||'').trim();if(!m)return;
-  if(isHost){addChat(myName,m,false,myLook.av,myLook.col);broadcast({t:'chat',n:myName,m,av:myLook.av,col:myLook.col})}
-  else if(hostConn&&hostConn.open)hostConn.send({t:'chat',m});
+function sendChat(m,sp){
+  m=String(m||'').trim();if(!m)return;sp=!!sp;
+  if(isHost){addChat(myName,m,false,myLook.av,myLook.col,sp);broadcast({t:'chat',n:myName,m,av:myLook.av,col:myLook.col,sp})}
+  else if(hostConn&&hostConn.open)hostConn.send({t:'chat',m,sp});
   else toast('Not connected right now.');
 }
 function openFsChat(){$('fsChat').style.display='flex';$('fsMsg').focus();wake()}
@@ -1673,6 +1678,7 @@ const I18N={
 "Wait for everyone (pause if a friend's video stalls or they drop out)":['सबका इंतज़ार करें (किसी दोस्त का वीडियो अटके या वो निकल जाए तो रोकें)','ਸਭ ਦੀ ਉਡੀਕ ਕਰੋ (ਕਿਸੇ ਦੋਸਤ ਦੀ ਵੀਡੀਓ ਅਟਕੇ ਜਾਂ ਉਹ ਨਿਕਲ ਜਾਵੇ ਤਾਂ ਰੋਕੋ)'],
 'Keep going':['चलते रहें','ਚੱਲਦੇ ਰਹੋ'],
 'Soundboard':['साउंडबोर्ड','ਸਾਊਂਡਬੋਰਡ'],
+'Sit here':['यहाँ बैठें','ਇੱਥੇ ਬੈਠੋ'],'🎡 Spin the wheel':['🎡 पहिया घुमाएँ','🎡 ਪਹੀਆ ਘੁਮਾਓ'],'Spin the watchlist to pick tonight\'s movie.':['आज की मूवी चुनने के लिए वॉचलिस्ट घुमाएँ।','ਅੱਜ ਦੀ ਮੂਵੀ ਚੁਣਨ ਲਈ ਵਾਚਲਿਸਟ ਘੁਮਾਓ।'],
 'Hear soundboard sounds':['साउंडबोर्ड की आवाज़ें सुनें','ਸਾਊਂਡਬੋਰਡ ਦੀਆਂ ਆਵਾਜ਼ਾਂ ਸੁਣੋ'],
 'Drumroll':['ड्रमरोल','ਡਰੱਮਰੋਲ'],'Applause':['तालियाँ','ਤਾੜੀਆਂ'],'Air horn':['हॉर्न','ਹਾਰਨ'],'Sad trombone':['उदास ट्रॉम्बोन','ਉਦਾਸ ਟ੍ਰੌਂਬੋਨ']
 };
@@ -1857,14 +1863,116 @@ function showSfx(k,who){if(!SFX[k])return;popReaction(SFX[k].i);if(sfx.on&&who)t
 function sendSfx(k){
   if(!SFX[k])return;
   const now=performance.now();if(now-sfx.last<1500)return;sfx.last=now;
-  playSfx(k);showSfx(k,'');
-  if(isHost)broadcast({t:'sfx',k,n:avName({av:myLook.av,name:myName})});
+  playSfx(k);showSfx(k,'');seatPop(myId(),SFX[k].i);
+  if(isHost)broadcast({t:'sfx',k,n:avName({av:myLook.av,name:myName}),id:myId()});
   else if(hostConn&&hostConn.open)hostConn.send({t:'sfx',k});
 }
 function renderSfx(){
   $('sfxGrid').innerHTML=Object.entries(SFX).map(([k,v])=>'<button data-sfx="'+k+'"><b>'+v.i+'</b>'+esc(v.n)+'</button>').join('');
   $('sfxOn').checked=sfx.on;$('sfxVol').value=sfx.vol;$('sfxVol').disabled=!sfx.on;
   $('sfxBtn').classList.toggle('off',!sfx.on);
+}
+
+/* ================= COUCH SEATS ================= */
+let mySeat=0;
+function seatCount(n,maxSeat){let c=Math.max(6,n+2);if(c%2)c++;return Math.min(16,Math.max(c,maxSeat+1))}
+function takenSeats(except){const t=new Set();if(except!=='host')t.add(mySeat);for(const [id,c] of conns)if(id!==except&&c.name!=='…'&&!c.remote&&c.seat>=0)t.add(c.seat);return t}
+function freeSeat(except){const t=takenSeats(except);for(let i=0;i<16;i++)if(!t.has(i))return i;return -1}
+function hostSeat(who,i){   // who: 'host' or a peer id
+  i=Math.floor(+i);const n=people.length,max=seatCount(n,Math.max(...people.map(p=>p.seat|0),0));
+  if(!(i>=0&&i<max)||takenSeats(who).has(i))return false;
+  if(who==='host')mySeat=i;else{const c=conns.get(who);if(!c)return false;c.seat=i}
+  pushPeople();return true;
+}
+function renderCouch(){
+  const box=$('couch');if(!box)return;
+  const bySeat=new Map();people.forEach(p=>{if(p.seat>=0)bySeat.set(p.seat,p)});
+  const n=seatCount(people.length,Math.max(-1,...people.map(p=>p.seat)));
+  const mine=myId(),per=n<=8?n/2>3?Math.ceil(n/2):n:Math.ceil(n/Math.ceil(n/6));
+  let html='';
+  for(let st=0;st<n;st+=per){
+    html+='<div class="sofa">';
+    for(let i=st;i<Math.min(n,st+per);i++){
+      const p=bySeat.get(i);
+      html+=p?'<button class="seat full'+(p.id===mine?' me':'')+(speaking.has(p.id)?' speaking':'')+'" data-seat="'+i+'" data-id="'+esc(p.id)+'" aria-label="'+esc(p.name)+'"><span class="sav">'+esc(p.av||'🙂')+'</span><span class="snm"'+(p.col?' style="color:'+p.col+'"':'')+'>'+esc(p.name)+'</span></button>'
+        :'<button class="seat" data-seat="'+i+'" aria-label="Sit here"><span class="sav">＋</span><span class="snm">Sit here</span></button>';
+    }
+    html+='</div>';
+  }
+  box.innerHTML=html;
+}
+function seatPop(id,e){
+  if(!id)return;const el=document.querySelector('#couch .seat[data-id="'+CSS.escape(String(id))+'"]');if(!el)return;
+  const s=document.createElement('span');s.className='spop';s.textContent=e;el.appendChild(s);setTimeout(()=>s.remove(),1800);
+}
+function pickSeat(i){
+  const me=people.find(p=>p.id===myId());if(me&&me.seat===i)return;
+  if(isHost){if(!hostSeat('host',i))toast('That seat is taken.')}
+  else if(hostConn&&hostConn.open)hostConn.send({t:'seat',i});
+}
+
+/* ================= SPOILER SHIELD ================= */
+let spoilNext=false;
+function spoilWrap(h){return '<span class="spoil" tabindex="0" role="button" title="Spoiler: tap to show">'+h+'</span>'}
+function isSpoilerText(m){return /^\s*spoiler\b/i.test(m)}
+function fmtMsg(m,sp){const h=esc(m);if(sp||isSpoilerText(m))return spoilWrap(h);return h.replace(/\|\|(.+?)\|\|/g,(_,x)=>spoilWrap(x))}
+function hasSpoiler(m,sp){return !!sp||isSpoilerText(m)||/\|\|.+?\|\|/.test(m)}
+function setSpoil(on){spoilNext=on;$('spoilBtn').classList.toggle('on',on);$('spoilBtn').setAttribute('aria-pressed',on);$('msg').placeholder=on?'Spoiler (hidden until tapped)':'Say something'}
+
+/* ================= MOVIE ROULETTE ================= */
+let spinAt=0,spinT=null;
+function spinRequest(){
+  if((lastVotes||[]).length<2)return toast('Add at least 2 movies to the watchlist first, then spin.');
+  if(isHost)hostSpin(avName({av:myLook.av,name:myName}));
+  else if(hostConn&&hostConn.open)hostConn.send({t:'spin'});
+}
+function hostSpin(by){
+  const now=performance.now();if(now-spinAt<9000)return;
+  const names=voteItems().map(x=>x.name).slice(0,24);if(names.length<2)return;
+  spinAt=now;
+  const r=new Uint32Array(2);crypto.getRandomValues(r);
+  const i=r[0]%names.length,j=(r[1]%1000)/1000;
+  broadcast({t:'spin',names,i,j,by});showWheel(names,i,j,by);
+}
+function showWheel(names,i,j,by){
+  const w=$('wheel'),n=names.length,a=360/n;clearTimeout(spinT);
+  const cx=150,r=140,pal=['#e5383b','#ffc857','#5ad17a','#4cc9f0','#b388ff','#ff8fab','#f4a261','#2ec4b6'];
+  let segs='';
+  names.forEach((nm,k)=>{
+    const a0=(k*a-90)*Math.PI/180,a1=((k+1)*a-90)*Math.PI/180,large=a>180?1:0;
+    const p0=[cx+r*Math.cos(a0),cx+r*Math.sin(a0)],p1=[cx+r*Math.cos(a1),cx+r*Math.sin(a1)];
+    const col=pal[k%pal.length]+(k%pal.length===0&&n%pal.length===1&&k===n-1?'':'');
+    segs+='<path d="M'+cx+' '+cx+'L'+p0[0].toFixed(1)+' '+p0[1].toFixed(1)+'A'+r+' '+r+' 0 '+large+' 1 '+p1[0].toFixed(1)+' '+p1[1].toFixed(1)+'Z" fill="'+(n%pal.length===1&&k===n-1?'#9d8df1':col)+'"/>';
+    const mid=k*a+a/2,label=nm.length>18?nm.slice(0,17)+'…':nm,fs=n>16?9:n>10?11:13;
+    const flip=mid>180;   // keep labels on the left half the right way up
+    segs+='<text transform="rotate('+(flip?mid+90:mid-90).toFixed(2)+' '+cx+' '+cx+')" x="'+(flip?cx-r+10:cx+r-10)+'" y="'+cx+'" font-size="'+fs+'" text-anchor="'+(flip?'start':'end')+'" dominant-baseline="middle">'+esc(label)+'</text>';
+  });
+  w.innerHTML='<div class="wbox"><svg viewBox="-6 -14 312 320" class="wsvg"><g class="wrot">'+segs+'</g><circle cx="150" cy="150" r="14" fill="#16141a" stroke="#fff" stroke-width="3"/><path d="M137 -10H163L150 22Z" fill="#fff" stroke="#0008" stroke-width="1.5"/></svg><div class="wres" id="wres">'+(by?esc(by)+' spun the wheel…':'Spinning…')+'</div></div>';
+  w.hidden=false;
+  const g=w.querySelector('.wrot'),R=360*6+(360-(i+.2+j*.6)*a);
+  g.style.transform='rotate(0deg)';g.getBoundingClientRect();
+  g.style.transition='transform 5s cubic-bezier(.33,1,.68,1)';g.style.transform='rotate('+R+'deg)';
+  wheelTicks(R,a);
+  spinT=setTimeout(()=>{
+    const nm=names[i];
+    $('wres').innerHTML='🎡 Tonight: <b>'+esc(nm)+'</b>'+(isHost?wheelActs(nm):'')+'<button class="ghost small" id="wClose">Close</button>';
+    $('wClose').onclick=()=>{w.hidden=true};
+    if($('wPlay'))$('wPlay').onclick=()=>{w.hidden=true;const qi=queue.findIndex(q=>q.name===nm);if(qi>=0)playNext(qi)};
+    if($('wFirst'))$('wFirst').onclick=()=>{w.hidden=true;const qi=queue.findIndex(q=>q.name===nm);if(qi>0){queue.unshift(queue.splice(qi,1)[0]);renderQueue()}};
+    addChat('','🎡 The wheel picked '+nm,true);playSfx('rim');
+    spinT=setTimeout(()=>{w.hidden=true},15000);
+  },5200);
+}
+function wheelActs(nm){const qi=queue.findIndex(q=>q.name===nm);return qi<0?'':'<button class="small" id="wPlay">Play it now</button>'+(qi>0?'<button class="ghost small" id="wFirst">Make it next</button>':'')}
+function wheelTicks(R,a){
+  if(!sfx.on||!sfx.vol)return;const ac2=sfxOut();if(!ac2)return;wakeAudio();
+  const t0=ac2.currentTime+.02,ticks=Math.min(220,Math.floor(R/a));
+  for(let k=1;k<=ticks;k++){
+    const th=k*a/R;if(th>=1)break;
+    // invert the ease-out curve 1-(1-t)^3 to find when the wheel passes each segment
+    const t=1-Math.cbrt(1-th);
+    hit(ac2,t0+t*5,{dur:.018,freq:3200,q:2,vol:.35});
+  }
 }
 
 /* ================= PLAYER ================= */
@@ -1901,8 +2009,8 @@ function seekTo(t){
   else if(hostConn&&hostConn.open)hostConn.send({t:'ctl',a:'seek',v:t});
 }
 function sendReaction(e){
-  popReaction(e);if(isHost)noteMoment(e);
-  if(isHost)broadcast({t:'react',e});else if(hostConn&&hostConn.open)hostConn.send({t:'react',e});
+  popReaction(e);seatPop(myId(),e);if(isHost)noteMoment(e);
+  if(isHost)broadcast({t:'react',e,id:myId()});else if(hostConn&&hostConn.open)hostConn.send({t:'react',e});
 }
 function toggleFs(){
   if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
@@ -2080,7 +2188,13 @@ $('statsBtn').onclick=()=>{showStats=!showStats;$('stats').style.display=showSta
 const copy=(t,ok)=>{const done=()=>toast(ok),fail=()=>toast('Copy this: '+t);navigator.clipboard?navigator.clipboard.writeText(t).then(done,fail):fail()};
 $('copyLink').onclick=()=>copy(inviteLink(),'Invite link copied. Send it to your friends.');
 $('copyCode').onclick=()=>copy(code,'Code copied');
-$('chatForm').onsubmit=e=>{e.preventDefault();sendChat($('msg').value);$('msg').value=''};
+$('chatForm').onsubmit=e=>{e.preventDefault();if(!$('msg').value.trim())return;sendChat($('msg').value,spoilNext);$('msg').value='';setSpoil(false)};
+$('spoilBtn').onclick=()=>{setSpoil(!spoilNext);$('msg').focus()};
+const revealSpoil=e=>{const sp=e.target.closest('.spoil');if(sp)sp.classList.toggle('shown')};
+$('chat').addEventListener('click',revealSpoil);
+$('chat').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList.contains('spoil')){e.preventDefault();revealSpoil(e)}});
+$('couch').addEventListener('click',e=>{const b=e.target.closest('.seat');if(b)pickSeat(+b.dataset.seat)});
+$('spinBtn').onclick=spinRequest;
 $('fsChat').onsubmit=e=>{e.preventDefault();sendChat($('fsMsg').value);$('fsMsg').value='';closeFsChat()};
 $('fsMsg').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeFsChat()}});
 $('chatBtn').onclick=()=>$('fsChat').style.display==='flex'?closeFsChat():openFsChat();

@@ -25,7 +25,7 @@
 window.COUCHCAST_TURN_API = "";
 window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 </script>
-<link rel="stylesheet" href="style.css?v=20261127c">
+<link rel="stylesheet" href="style.css?v=20261127d">
 </head>
 <body>
 <header>
@@ -110,6 +110,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <div class="empty" id="empty"></div>
         <div class="cams" id="cams"></div>
         <div class="lasers" id="lasers"></div>
+        <div class="wheel" id="wheel" hidden></div>
         <div class="waitb" id="waitb"></div>
         <div class="spin" id="spin"><i></i></div>
         <div class="subs" id="subs"></div>
@@ -155,6 +156,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
           </div></span>
         <span class="now" id="now"></span>
       </div>
+      <div class="couch" id="couch" aria-label="The couch: tap a free seat to sit there"></div>
     </div>
 
     <aside class="side">
@@ -243,6 +245,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
       <div class="box" id="momentsBox" style="display:none"><h3>Best moments</h3><ul class="queue moments" id="moments"></ul></div>
 
       <div class="box" id="upNextBox" style="display:none"><h3>Up next &amp; watchlist</h3><ul class="queue votes" id="upNext"></ul>
+        <div class="row" style="margin-top:10px;align-items:center;gap:10px"><button class="ghost" id="spinBtn">🎡 Spin the wheel</button><span class="hint" style="margin:0">Spin the watchlist to pick tonight's movie.</span></div>
         <form id="suggestForm" class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="suggestIn" type="text" maxlength="60" placeholder="Add to the watchlist" autocomplete="off" style="flex:1"><button class="ghost">Add</button></form>
         <p class="hint">The watchlist is kept on the host's device, so it's still there next movie night.</p>
       </div>
@@ -252,7 +255,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
       <div class="box">
         <h3>Chat</h3>
         <div id="chat" aria-live="polite"></div>
-        <form id="chatForm" class="row" style="flex-wrap:nowrap"><input id="msg" type="text" maxlength="300" placeholder="Say something" autocomplete="off" style="flex:1"><button>Send</button></form>
+        <form id="chatForm" class="row" style="flex-wrap:nowrap"><button type="button" class="ghost" id="spoilBtn" aria-pressed="false" title="Send as a spoiler (hidden until tapped). You can also wrap words in ||double bars||.">🙈</button><input id="msg" type="text" maxlength="300" placeholder="Say something" autocomplete="off" style="flex:1"><button>Send</button></form>
       </div>
       <button class="ghost" id="statsBtn">Show connection stats</button>
     </aside>
@@ -261,6 +264,6 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="sheet"><div id="modalBody"></div><button class="ghost" id="modalClose" style="margin-top:8px">Close</button></div></div>
 <div id="toast" role="alert"></div>
 
-<script src="app.js?v=20261127c"></script>
+<script src="app.js?v=20261127d"></script>
 </body>
 </html>
