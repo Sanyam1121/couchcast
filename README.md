@@ -30,6 +30,10 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Hindi and Punjabi**: switch the language from the header.
 - **Chat, reactions, subtitles** (.srt/.vtt shown to everyone), invite links, connection stats.
 - **Install as an app** on phones and computers (Install button in the header; on iPhone: Share → Add to Home Screen).
+- **Host from an Android phone** — open the site on the phone and host. Quality drops to 8 Mbps / 30 fps and two direct friends, so the phone stays cool. Keep Couchcast on screen while hosting. iPhones can't stream a file, so they switch to "everyone plays their own copy" mode.
+- **Wait for everyone** — if a friend's video freezes or they drop out, the movie pauses for everybody and starts again once they're back. The host can press **Keep going**. Leaving on purpose doesn't pause. Turn it off in the host box.
+- **Laser pointer** — press 🔦 (or **L**) and tap the movie to show everyone a dot in your colour.
+- **Avatars and colours** — pick an emoji and a name colour on the start page; they show in chat, the people list and talk labels.
 
 ## If a friend can't connect (stuck at "Connecting…")
 Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. Couchcast says so after 15 seconds instead of waiting forever. The fix is a relay server (a free ExpressTURN account gives 1 TB a month):

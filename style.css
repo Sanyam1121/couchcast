@@ -172,3 +172,20 @@ body.tv .subs span{font-size:clamp(26px,3vw,48px)}
 body.tv .tvchat{display:flex}
 body.tv #tvBtn{color:var(--gold)}
 body.tv #seek{height:28px}
+
+/* avatars, colours, laser pointer, wait-for-everyone banner */
+.pick{display:flex;gap:6px;flex-wrap:wrap}
+.pick button{min-height:40px;min-width:40px;padding:4px;background:#0e0d11;border:1px solid var(--line);font-size:20px;border-radius:10px;color:var(--ink)}
+.pick button.on{border-color:var(--gold);box-shadow:0 0 0 2px rgba(255,200,87,.35)}
+.pick .sw{width:22px;height:22px;border-radius:50%;display:block;margin:auto}
+.person .av,#chat .av{margin-right:2px}
+.lasers{position:absolute;inset:0;pointer-events:none;z-index:6;overflow:hidden}
+.laser{position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:currentColor;box-shadow:0 0 14px 5px currentColor;animation:lz 3s forwards}
+.laser span{position:absolute;left:18px;top:-5px;white-space:nowrap;font-size:13px;background:rgba(0,0,0,.72);color:#fff;padding:1px 7px;border-radius:6px}
+@keyframes lz{0%{transform:scale(.3)}12%{transform:scale(1.15)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.laser{animation-duration:3s;animation-name:none}}
+.stage.lasering,.stage.lasering video{cursor:crosshair}
+#laserBtn.on{color:var(--red);background:rgba(229,56,59,.18)}
+.waitb{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:7;display:none;align-items:center;gap:10px;background:rgba(0,0,0,.8);border:1px solid var(--gold);border-radius:12px;padding:8px 14px;font-size:15px;max-width:90%}
+.waitb button{min-height:36px;padding:4px 12px;font-size:14px}
+@media(max-width:600px){#castBtn,#pipBtn{display:none!important}.bar{gap:2px;padding-left:4px;padding-right:4px}.bar button{min-width:36px;padding:6px 4px}}
