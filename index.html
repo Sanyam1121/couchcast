@@ -238,7 +238,7 @@ body.tv #seek{height:28px}
           <label for="voiceVol">Friends' voices</label>
           <input type="range" id="voiceVol" min="0" max="1.5" step="0.05" value="1">
         </div>
-        <p class="hint">The movie gets quieter on its own while anyone talks.</p>
+        <label class="check"><input type="checkbox" id="duckOn" checked> Make the movie quieter while someone talks</label>
       </div>
 
       <div class="box" id="hostBox" style="display:none">
@@ -484,6 +484,7 @@ function viewerUseElement(){
 }
 let duckDown=false;
 function setDuck(down){
+  down=down&&$('duckOn').checked;
   if(!ac||down===duckDown)return;duckDown=down;
   duck.gain.setTargetAtTime(down?.25:1,ac.currentTime,down?.05:.35);
 }
@@ -1196,6 +1197,8 @@ if(relaySetupMsg){$('lobbyMsg').textContent=relaySetupMsg}
 if(/^[A-Z0-9]{6}$/.test(h)){$('joinCode').value=h;$('lobbyMsg').textContent='You were invited to room '+h+'. Enter your name and press Join.';($('name').value?$('joinBtn'):$('name')).focus()}
 $('vClear').checked=store.get('cc-vclear')==='1';$('vDelay').value=+store.get('cc-vdelay')||0;$('vDelayOut').textContent=$('vDelay').value;
 if(store.get('cc-clear')==='0')$('clearDlg').checked=false;
+$('duckOn').checked=store.get('cc-duck')!=='0';
+$('duckOn').onchange=e=>{store.set('cc-duck',e.target.checked?'1':'0');if(!e.target.checked)setDuck(false)};
 
 $('hostBtn').onclick=()=>startHost();
 $('joinBtn').onclick=()=>startJoin();
