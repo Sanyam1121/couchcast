@@ -425,6 +425,7 @@ function onHostData(conn,d){
   if(d.t==='bye'){c.bye=true}
   if(d.t==='laser'&&isFinite(d.x)&&isFinite(d.y)){const x=+d.x,y=+d.y,n=avName({av:c.av,name:c.name});showLaser(x,y,n,c.col);broadcast({t:'laser',x,y,n,col:c.col},conn.peer)}
   if(d.t==='react'){const e=String(d.e||'').slice(0,4);noteMoment(e);popReaction(e);broadcast({t:'react',e},conn.peer)}
+  if(d.t==='sfx'&&SFX[d.k]){const now=performance.now();if(now-(c.sfxAt||0)<1200)return;c.sfxAt=now;const n=avName({av:c.av,name:c.name});playSfx(d.k);showSfx(d.k,n);broadcast({t:'sfx',k:d.k,n},conn.peer)}
   if(d.t==='mic'){c.mic=!!d.on;pushPeople()}
   if(d.t==='helper'){c.helper=!!d.on}
   if(d.t==='match'){c.match=['same','close','diff'].includes(d.v)?d.v:'';pushPeopleSoon()}
@@ -706,6 +707,7 @@ function onViewerData(d){
     case 'kicked':bounce('The host removed you from this room.');break;
     case 'hello':admitted();marks=cleanMarks(d.marks);momentsList=cleanMoments(d.moments);renderMoments();setNow(d.title);setSub(d.sub);hostFi=d.fi&&typeof d.fi==='object'?{fp:String(d.fi.fp)}:null;applyMode(d.mode,cleanLink(d.link));allowCtl=!!d.ctl;updateControls();renderVotes(cleanVotes(d.votes));break;
     case 'chat':addChat(d.n,d.m,false,d.av,d.col);break;
+    case 'sfx':if(SFX[d.k]){playSfx(d.k);showSfx(d.k,String(d.n||'').slice(0,30))}break;
     case 'laser':if(isFinite(d.x)&&isFinite(d.y))showLaser(+d.x,+d.y,String(d.n||'').slice(0,30),cleanCol(d.col));break;
     case 'wait':showWait(Array.isArray(d.names)?d.names.map(n=>String(n).slice(0,24)).slice(0,10):[]);break;
     case 'people':people=Array.isArray(d.list)?d.list.filter(p=>p&&typeof p==='object').map(p=>({id:String(p.id),name:String(p.name).slice(0,24),host:!!p.host,mic:!!p.mic,av:cleanAv(p.av),col:cleanCol(p.col),via:String(p.via||'').slice(0,24),q:String(p.q||'').slice(0,8),match:String(p.match||'').slice(0,6)})):[];renderPeople();voiceSyncCalls();camSync();break;
@@ -1669,7 +1671,10 @@ const I18N={
 'Copy link':['लिंक कॉपी करें','ਲਿੰਕ ਕਾਪੀ ਕਰੋ'],
 'Your avatar and name colour':['आपका अवतार और नाम का रंग','ਤੁਹਾਡਾ ਅਵਤਾਰ ਅਤੇ ਨਾਮ ਦਾ ਰੰਗ'],
 "Wait for everyone (pause if a friend's video stalls or they drop out)":['सबका इंतज़ार करें (किसी दोस्त का वीडियो अटके या वो निकल जाए तो रोकें)','ਸਭ ਦੀ ਉਡੀਕ ਕਰੋ (ਕਿਸੇ ਦੋਸਤ ਦੀ ਵੀਡੀਓ ਅਟਕੇ ਜਾਂ ਉਹ ਨਿਕਲ ਜਾਵੇ ਤਾਂ ਰੋਕੋ)'],
-'Keep going':['चलते रहें','ਚੱਲਦੇ ਰਹੋ']
+'Keep going':['चलते रहें','ਚੱਲਦੇ ਰਹੋ'],
+'Soundboard':['साउंडबोर्ड','ਸਾਊਂਡਬੋਰਡ'],
+'Hear soundboard sounds':['साउंडबोर्ड की आवाज़ें सुनें','ਸਾਊਂਡਬੋਰਡ ਦੀਆਂ ਆਵਾਜ਼ਾਂ ਸੁਣੋ'],
+'Drumroll':['ड्रमरोल','ਡਰੱਮਰੋਲ'],'Applause':['तालियाँ','ਤਾੜੀਆਂ'],'Air horn':['हॉर्न','ਹਾਰਨ'],'Sad trombone':['उदास ट्रॉम्बोन','ਉਦਾਸ ਟ੍ਰੌਂਬੋਨ']
 };
 let lang=['hi','pa'].includes(store.get('cc-lang'))?store.get('cc-lang'):'en';
 function tr(t){if(lang==='en'||t==null)return t;const v=I18N[String(t).trim()];return v?(lang==='hi'?v[0]:v[1]):t}
@@ -1804,6 +1809,63 @@ async function keepAwake(){
 document.addEventListener('visibilitychange',()=>{
   if(!document.hidden){keepAwake();if(isHost&&isPhone&&mode==='stream'&&stream&&conns.size)addChat('','Phones pause the stream while Couchcast is in the background. Keep it open on screen while friends watch.',true)}
 });
+
+/* ================= SOUNDBOARD ================= */
+// short sounds made on the fly with Web Audio, so there are no files to download.
+// They play on each person's own speakers and never go into the movie stream.
+const SFX={
+  drum:{i:'🥁',n:'Drumroll'},rim:{i:'😆',n:'Ba-dum-tss'},clap:{i:'👏',n:'Applause'},
+  horn:{i:'📯',n:'Air horn'},sad:{i:'🎺',n:'Sad trombone'},boing:{i:'🌀',n:'Boing'}
+};
+const sfx={on:store.get('cc-sfx')!=='off',vol:Math.max(0,Math.min(1,parseFloat(store.get('cc-sfxv')??'0.6')||0)),last:0,out:null};
+if(store.get('cc-sfxv')==='0')sfx.vol=0;
+function sfxOut(){
+  const a=getAC();if(!a)return null;
+  if(!sfx.out){sfx.out=a.createGain();const lim=a.createDynamicsCompressor();lim.threshold.value=-6;lim.knee.value=3;lim.ratio.value=12;lim.attack.value=.002;lim.release.value=.15;sfx.out.connect(lim);lim.connect(a.destination)}
+  sfx.out.gain.value=sfx.vol;return a;
+}
+function noiseBuf(a,sec){
+  const b=a.createBuffer(1,Math.ceil(a.sampleRate*sec),a.sampleRate),d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;return b;
+}
+function hit(a,t,{dur=.08,freq=1800,q=1,type='bandpass',vol=.6}={}){
+  const n=a.createBufferSource();n.buffer=noiseBuf(a,dur+.05);
+  const f=a.createBiquadFilter();f.type=type;f.frequency.value=freq;f.Q.value=q;
+  const g=a.createGain();g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
+  n.connect(f);f.connect(g);g.connect(sfx.out);n.start(t);n.stop(t+dur+.05);
+}
+function tone(a,t,{f0=200,f1=null,dur=.3,type='sine',vol=.4,vib=0,attack=.01}={}){
+  const o=a.createOscillator();o.type=type;o.frequency.setValueAtTime(f0,t);
+  if(f1)o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+  if(vib){const l=a.createOscillator(),lg=a.createGain();l.frequency.value=6;lg.gain.value=vib;l.connect(lg);lg.connect(o.frequency);l.start(t);l.stop(t+dur)}
+  const g=a.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+attack);
+  g.gain.setValueAtTime(vol,t+Math.max(attack,dur-.08));g.gain.linearRampToValueAtTime(0,t+dur);
+  o.connect(g);g.connect(sfx.out);o.start(t);o.stop(t+dur+.02);
+}
+function playSfx(k){
+  if(!sfx.on||!sfx.vol||!SFX[k])return;
+  const a=sfxOut();if(!a)return;wakeAudio();
+  const t=a.currentTime+.03;
+  if(k==='drum'){for(let i=0;i<34;i++)hit(a,t+i*.045,{dur:.06,freq:900,q:.8,vol:.25+.35*(i/34)});hit(a,t+1.6,{dur:1.1,freq:6000,q:.4,type:'highpass',vol:.5});tone(a,t+1.6,{f0:90,f1:45,dur:.35,vol:.4})}
+  else if(k==='rim'){tone(a,t,{f0:160,f1:60,dur:.18,vol:.6});hit(a,t,{dur:.08,freq:1200,vol:.35});tone(a,t+.22,{f0:150,f1:55,dur:.2,vol:.6});hit(a,t+.22,{dur:.08,freq:1200,vol:.35});hit(a,t+.48,{dur:.9,freq:7000,q:.3,type:'highpass',vol:.45})}
+  else if(k==='clap'){for(let i=0;i<120;i++){const x=Math.random()*2.4;hit(a,t+x,{dur:.04+Math.random()*.03,freq:1100+Math.random()*1500,q:1.2,vol:1*(x<1.9?1:(2.4-x)*2)})}}
+  else if(k==='horn'){[0,.45,.9].forEach((d,i)=>{const L=i===2?.9:.35;[440,554,659].forEach(f=>tone(a,t+d,{f0:f,dur:L,type:'sawtooth',vol:.18,attack:.02}))})}
+  else if(k==='sad'){[[293,.42],[277,.42],[262,.42],[247,1.2]].reduce((d,[f,L],i)=>{tone(a,t+d,{f0:f,dur:L,type:'sawtooth',vol:.3,vib:i===3?7:0,attack:.04});return d+L+.04},0)}
+  else if(k==='boing'){tone(a,t,{f0:120,f1:520,dur:.5,vol:.22,vib:30})}
+}
+function showSfx(k,who){if(!SFX[k])return;popReaction(SFX[k].i);if(sfx.on&&who)toast(who+': '+SFX[k].i+' '+SFX[k].n)}
+function sendSfx(k){
+  if(!SFX[k])return;
+  const now=performance.now();if(now-sfx.last<1500)return;sfx.last=now;
+  playSfx(k);showSfx(k,'');
+  if(isHost)broadcast({t:'sfx',k,n:avName({av:myLook.av,name:myName})});
+  else if(hostConn&&hostConn.open)hostConn.send({t:'sfx',k});
+}
+function renderSfx(){
+  $('sfxGrid').innerHTML=Object.entries(SFX).map(([k,v])=>'<button data-sfx="'+k+'"><b>'+v.i+'</b>'+esc(v.n)+'</button>').join('');
+  $('sfxOn').checked=sfx.on;$('sfxVol').value=sfx.vol;$('sfxVol').disabled=!sfx.on;
+  $('sfxBtn').classList.toggle('off',!sfx.on);
+}
 
 /* ================= PLAYER ================= */
 function localPlayer(){return isHost||((mode==='sync'||mode==='link')&&M.ok())}
@@ -1999,6 +2061,12 @@ vid.addEventListener('dblclick',toggleFs);
 vid.addEventListener('click',()=>{if(laserOn)return;if(canControl())togglePlay();else wake()});
 stage.addEventListener('pointerdown',e=>{if(!laserOn||e.target.closest('.bar,#ov,#fsChat,#tap,#skipBtn,#waitb,.empty button'))return;e.preventDefault();laserAt(e)});
 $('laserBtn').onclick=()=>setLaser(!laserOn);
+renderSfx();
+$('sfxBtn').onclick=e=>{e.stopPropagation();const p=$('sfxPop');p.hidden=!p.hidden};
+document.addEventListener('click',e=>{const p=$('sfxPop');if(!p.hidden&&!p.contains(e.target)&&e.target!==$('sfxBtn'))p.hidden=true});
+$('sfxGrid').onclick=e=>{const b=e.target.closest('[data-sfx]');if(b)sendSfx(b.dataset.sfx)};
+$('sfxOn').onchange=()=>{sfx.on=$('sfxOn').checked;store.set('cc-sfx',sfx.on?'on':'off');renderSfx()};
+$('sfxVol').oninput=()=>{sfx.vol=+$('sfxVol').value;store.set('cc-sfxv',String(sfx.vol));if(sfx.out)sfx.out.gain.value=sfx.vol};
 $('avPick').onclick=e=>{const b=e.target.closest('button[data-av]');if(b){myLook.av=cleanAv(b.dataset.av)||myLook.av;lookChanged()}};
 $('colPick').onclick=e=>{const b=e.target.closest('button[data-col]');if(b){myLook.col=cleanCol(b.dataset.col)||myLook.col;lookChanged()}};
 renderLook();
@@ -2007,7 +2075,7 @@ if(!canShare)$('shareRow').style.display='none';
 ['mousemove','touchstart'].forEach(ev=>stage.addEventListener(ev,wake,{passive:true}));
 $('tapBtn').onclick=()=>{$('tap').style.display='none';wakeAudio();if(mode==='link'){if(!isHost&&!remote.p)M.play()}else if(vid.srcObject||vid.src)vid.play().catch(()=>{});for(const v of voice.in.values())v.el.play().catch(()=>{})};
 document.addEventListener('pointerdown',wakeAudio,{passive:true});
-document.querySelectorAll('.react').forEach(b=>b.onclick=()=>sendReaction(b.dataset.e));
+document.querySelectorAll('.react[data-e]').forEach(b=>b.onclick=()=>sendReaction(b.dataset.e));
 $('statsBtn').onclick=()=>{showStats=!showStats;$('stats').style.display=showStats&&vid.srcObject?'block':'none';$('statsBtn').textContent=showStats?'Hide connection stats':'Show connection stats';if(isHost&&showStats)toast('Stats show on your friends\' screens. Ask them what they see.')};
 const copy=(t,ok)=>{const done=()=>toast(ok),fail=()=>toast('Copy this: '+t);navigator.clipboard?navigator.clipboard.writeText(t).then(done,fail):fail()};
 $('copyLink').onclick=()=>copy(inviteLink(),'Invite link copied. Send it to your friends.');

@@ -25,7 +25,7 @@
 window.COUCHCAST_TURN_API = "";
 window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 </script>
-<link rel="stylesheet" href="style.css?v=20261127b">
+<link rel="stylesheet" href="style.css?v=20261127c">
 </head>
 <body>
 <header>
@@ -146,6 +146,13 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <button class="react" data-e="🔥" aria-label="Fire">🔥</button>
         <button class="react" data-e="❤️" aria-label="Love">❤️</button>
         <button class="react" data-e="🍿" aria-label="Popcorn">🍿</button>
+        <span class="sfxw"><button id="sfxBtn" class="react" aria-label="Soundboard" title="Soundboard">🔊</button>
+          <div id="sfxPop" class="sfxpop" hidden>
+            <div class="sfxh">Soundboard</div>
+            <div id="sfxGrid" class="sfxgrid"></div>
+            <label class="sfxon"><input type="checkbox" id="sfxOn"> <span>Hear soundboard sounds</span></label>
+            <input type="range" id="sfxVol" min="0" max="1" step="0.05" aria-label="Soundboard volume">
+          </div></span>
         <span class="now" id="now"></span>
       </div>
     </div>
@@ -254,6 +261,6 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="sheet"><div id="modalBody"></div><button class="ghost" id="modalClose" style="margin-top:8px">Close</button></div></div>
 <div id="toast" role="alert"></div>
 
-<script src="app.js?v=20261127b"></script>
+<script src="app.js?v=20261127c"></script>
 </body>
 </html>

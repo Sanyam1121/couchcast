@@ -34,6 +34,7 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Wait for everyone** — if a friend's video freezes or they drop out, the movie pauses for everybody and starts again once they're back. The host can press **Keep going**. Leaving on purpose doesn't pause. Turn it off in the host box.
 - **Laser pointer** — press 🔦 (or **L**) and tap the movie to show everyone a dot in your colour.
 - **Avatars and colours** — pick an emoji and a name colour on the start page; they show in chat, the people list and talk labels.
+- **Soundboard** — press 🔊 under the player for six short sounds everyone hears (drumroll, ba-dum-tss, applause, air horn, sad trombone, boing). Anyone can turn the sounds off or lower them just for themselves. The sounds are made in the browser, never go into the movie stream, and can be played once every 1.5 seconds.
 
 ## If a friend can't connect (stuck at "Connecting…")
 Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. Couchcast says so after 15 seconds instead of waiting forever. The fix is a relay server (a free ExpressTURN account gives 1 TB a month):
