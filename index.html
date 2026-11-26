@@ -19,7 +19,10 @@
 /* ===== SETTINGS YOU CAN EDIT =====
    TURN relay: some friends (mobile data, strict routers) can't connect directly.
    Put a TURN server here once and it works for everyone who opens your link.
-   Free option: sign up at metered.ca (free monthly allowance) and paste the details. */
+   Easiest: make a free account at metered.ca (Open Relay, 20 GB a month free), copy your
+   "TURN credentials" link (https://YOURAPP.metered.live/api/v1/turn/credentials?apiKey=...)
+   and paste it into COUCHCAST_TURN_API below. Or fill in a fixed TURN server in COUCHCAST_TURN. */
+window.COUCHCAST_TURN_API = "";
 window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 </script>
 <style>
@@ -167,7 +170,10 @@ body.tv #seek{height:28px}
     <details>
       <summary>Connection settings (if a friend can't connect)</summary>
       <div class="box">
-        <p class="hint" style="margin-top:0">Some networks block direct connections. A TURN relay fixes this. Everyone who has trouble should enter the same details here (or the host can put them in the file once).</p>
+        <p class="hint" style="margin-top:0">Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. A relay server fixes this. Enter it here on both the host and friend devices, or put it in the site once so everyone gets it.</p>
+        <p class="hint" id="relayState"></p>
+        <label for="turnApi">Easiest: your Metered "TURN credentials" link</label><input id="turnApi" type="text" autocomplete="off" placeholder="https://yourapp.metered.live/api/v1/turn/credentials?apiKey=…">
+        <p class="hint">Or enter a TURN server by hand:</p>
         <label for="turnUrl">TURN address</label><input id="turnUrl" type="text" placeholder="turn:global.relay.metered.ca:443">
         <label for="turnUser">Username</label><input id="turnUser" type="text" autocomplete="off">
         <label for="turnPass">Password</label><input id="turnPass" type="password" autocomplete="off">
@@ -341,7 +347,26 @@ function iceServers(){
   if(t.urls)list.push({urls:t.urls.split(',').map(s=>s.trim()),username:t.username,credential:t.credential});
   return list;
 }
-function makePeer(id){const o={config:{iceServers:iceServers()},debug:0};return id?new Peer(id,o):new Peer(o)}
+/* Metered / Open Relay: fetch short-lived TURN credentials once per page load */
+let iceList=null,relayOn=false;
+function turnApi(){return store.get('cc-turnapi')||window.COUCHCAST_TURN_API||''}
+async function loadIce(){
+  const list=iceServers();relayOn=list.some(s=>String(s.urls).includes('turn'));
+  const api=turnApi();
+  if(api){
+    try{
+      const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),6000);
+      const r=await fetch(api,{signal:ctl.signal});clearTimeout(t);
+      const extra=await r.json();
+      if(Array.isArray(extra)&&extra.length){list.push(...extra.filter(x=>x&&x.urls));relayOn=true}
+    }catch(e){console.warn('TURN credentials',e)}
+  }
+  iceList=list;
+  $('relayState').textContent=relayOn?'Relay is set up on this device.':'No relay set up on this device yet.';
+  return list;
+}
+let iceReady=loadIce();
+function makePeer(id){const o={config:{iceServers:iceList||iceServers()},debug:0};return id?new Peer(id,o):new Peer(o)}
 function myId(){return peer&&peer.id}
 
 /* =========================================================================
@@ -518,7 +543,11 @@ function preferCodec(sdp){
 }
 
 /* ================= HOST ================= */
-function startHost(opts){
+async function startHost(opts){
+  getAC();$('lobbyMsg').textContent='Getting ready…';
+  await iceReady;startHostNow(opts);
+}
+function startHostNow(opts){
   opts=opts||{};
   getName(opts.name);isHost=true;code=opts.code||newCode();
   getAC();
@@ -536,7 +565,7 @@ function startHost(opts){
       }
       if(opts.voice)joinVoice();
     });
-    peer.on('disconnected',()=>{if(!leaving)setTimeout(()=>{try{peer.reconnect()}catch(e){}},1000)});
+    peer.on('disconnected',()=>{if(!leaving)setTimeout(()=>{try{peer&&!peer.destroyed&&peer.reconnect()}catch(e){}},1000)});
     peer.on('error',e=>{
       if(e.type==='unavailable-id'){
         try{peer.destroy()}catch(x){}
@@ -549,6 +578,10 @@ function startHost(opts){
     });
     peer.on('connection',conn=>{
       conns.set(conn.peer,{conn,name:'…',call:null,mic:false,joined:Date.now()});
+      setTimeout(()=>{
+        const c=conns.get(conn.peer);
+        if(c&&c.conn===conn&&!conn.open){addChat('','Someone tried to join but their connection couldn\'t get through. A relay fixes this: see Connection settings on the start page.',true);dropViewer(conn.peer)}
+      },15000);
       conn.on('data',d=>onHostData(conn,d));
       conn.on('close',()=>dropViewer(conn.peer));
       conn.on('error',()=>dropViewer(conn.peer));
@@ -780,7 +813,11 @@ function handOver(id,thenLeave){
 }
 
 /* ================= VIEWER ================= */
-function startJoin(opts){
+async function startJoin(opts){
+  getAC();$('lobbyMsg').textContent='Getting ready…';$('joinBtn').disabled=true;
+  await iceReady;startJoinNow(opts);
+}
+function startJoinNow(opts){
   opts=opts||{};
   getName(opts.name);code=(opts.code||$('joinCode').value).trim().toUpperCase();
   if(!/^[A-Z0-9]{6}$/.test(code)){$('lobbyMsg').textContent='Enter the 6-character code from your host.';return}
@@ -788,14 +825,14 @@ function startJoin(opts){
   $('lobbyMsg').textContent='Connecting…';$('joinBtn').disabled=true;
   peer=makePeer();
   peer.on('open',()=>{if(!hostConn||!hostConn.open)connectHost()});
-  peer.on('disconnected',()=>{if(!leaving)setTimeout(()=>{try{peer.reconnect()}catch(e){}},1000)});
+  peer.on('disconnected',()=>{if(!leaving)setTimeout(()=>{try{peer&&!peer.destroyed&&peer.reconnect()}catch(e){}},1000)});
   peer.on('error',e=>{
     $('joinBtn').disabled=false;
     if(e.type==='peer-unavailable'){
       if(String(e.message||'').includes(PREFIX+code)||!e.message){
         if(inRoom())retryHost();
         else if(opts.code&&retries++<6)setTimeout(connectHost,2500);
-        else $('lobbyMsg').textContent='No room with that code. Check it with your host, or the host may have closed the page.';
+        else{hostConn=null;$('lobbyMsg').textContent='No room with that code. Check it with your host, or the host may have closed the page.'}
       }
     }else $('lobbyMsg').textContent='Could not connect ('+e.type+'). Check your internet and try again.';
   });
@@ -804,7 +841,19 @@ function startJoin(opts){
 }
 let joinOpts={};
 function connectHost(){
+  if(!peer||peer.destroyed)return;
   hostConn=peer.connect(PREFIX+code,{reliable:true});
+  const mine=hostConn;
+  setTimeout(()=>{
+    if(mine!==hostConn||inRoom()||leaving)return;
+    // never got in: say why instead of "Connecting…" forever
+    $('lobbyMsg').innerHTML=mine.open
+      ?'The host\'s page found you but didn\'t answer. Ask the host to refresh their page (Ctrl+Shift+R) and create the room again.'
+      :'Can\'t reach the host\'s device. The room exists, but one of your networks is blocking a direct connection (common on Jio, Airtel, mobile hotspots and office Wi-Fi).'+
+       (relayOn?' A relay is set up but it didn\'t get through either; check the relay details under Connection settings.':' <b>Fix:</b> set up a free relay under <b>Connection settings</b> below, or try both devices on the same Wi-Fi or a different network.');
+    $('joinBtn').disabled=false;
+    try{mine.close()}catch(e){}hostConn=null;try{peer.destroy()}catch(e){}peer=null;retries=0;
+  },15000);
   hostConn.on('open',()=>{
     retries=0;
     hostConn.send({t:'join',n:myName,pw:$('joinPw').value});
@@ -1125,7 +1174,13 @@ $('joinBtn').onclick=()=>startJoin();
 $('joinCode').addEventListener('keydown',e=>{if(e.key==='Enter')startJoin()});
 $('joinPw').addEventListener('keydown',e=>{if(e.key==='Enter')startJoin()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter'&&$('joinCode').value)startJoin()});
-$('turnSave').onclick=()=>{store.set('cc-turn',JSON.stringify({urls:$('turnUrl').value.trim(),username:$('turnUser').value.trim(),credential:$('turnPass').value}));$('turnMsg').textContent='Saved. Used for the next room you create or join.'};
+$('turnSave').onclick=async()=>{
+  store.set('cc-turn',JSON.stringify({urls:$('turnUrl').value.trim(),username:$('turnUser').value.trim(),credential:$('turnPass').value}));
+  const api=$('turnApi').value.trim();if(api)store.set('cc-turnapi',api);else store.del('cc-turnapi');
+  $('turnMsg').textContent='Checking…';iceReady=loadIce();await iceReady;
+  $('turnMsg').textContent=relayOn?'Saved. The relay will be used for the next room you create or join.':'Saved, but no relay could be loaded. Check the link or details.';
+};
+$('turnApi').value=store.get('cc-turnapi')||'';
 $('mStream').onclick=()=>setMode('stream');
 $('mSync').onclick=()=>setMode('sync');
 $('file').onchange=e=>{addFiles(e.target.files);e.target.value=''};

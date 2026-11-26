@@ -15,8 +15,11 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Chat, reactions, subtitles** (.srt/.vtt shown to everyone), invite links, connection stats.
 - **Install as an app** on phones and computers (Install button in the header; on iPhone: Share → Add to Home Screen).
 
-## If a friend can't connect
-Some networks (mobile data, strict routers) block direct connections. Add a TURN relay (for example a free metered.ca account) in `window.COUCHCAST_TURN` near the top of `index.html`, or under "Connection settings" on the start page.
+## If a friend can't connect (stuck at "Connecting…")
+Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. Couchcast now says so after 15 seconds instead of waiting forever. The fix is a relay server:
+1. Make a free account at metered.ca (Open Relay: 20 GB a month free).
+2. Copy your "TURN credentials" link (`https://YOURAPP.metered.live/api/v1/turn/credentials?apiKey=...`).
+3. Paste it into `window.COUCHCAST_TURN_API` near the top of `index.html` so everyone gets it, or under "Connection settings" on the start page of each device.
 
 ## No sound, or bad sound?
 - **Silent for everyone (host too):** many 4K movie files use AC3 / E-AC3 / DTS 5.1 audio, which browsers can't play. Convert just the audio to AAC (the video is copied, so it's quick and keeps 4K):
