@@ -334,17 +334,43 @@ const baseName=n=>String(n).replace(/\.[^.]+$/,'');
 const isVideo=f=>/^video\//.test(f.type)||/\.(mkv|mp4|mov|m4v|webm|avi)$/i.test(f.name);
 function newCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from({length:6},()=>a[Math.floor(Math.random()*a.length)]).join('')}
 function getName(n){myName=(n||$('name').value).trim().slice(0,24)||'Guest'+Math.floor(Math.random()*90+10);store.set('cc-name',myName)}
-function inviteLink(){return location.href.split('#')[0].split('?')[0]+'#'+code}
+function inviteLink(){const r=currentRelay();return location.href.split('#')[0].split('?')[0]+'#'+code+(r&&r.src!=='site'?'~'+packRelay(r.t):'')}
 function inRoom(){return $('room').style.display==='grid'||$('room').style.display==='block'}
 function showModal(html){$('modalBody').innerHTML=html;$('modal').style.display='grid';$('modalClose').focus()}
 function overlay(html){const o=$('ov');if(html){o.innerHTML='<div>'+html+'</div>';o.style.display='grid'}else{o.style.display='none';o.innerHTML=''}}
 
 /* ---------- connection config ---------- */
+/* The relay login never lives in the public code: the host saves it on their device, and it rides
+   along in the invite links they copy (after a ~ in the #hash, which browsers never send to any server). */
+function normUrls(u){
+  let a=String(u||'').split(',').map(x=>x.trim()).filter(Boolean).map(x=>/^turns?:|^stun:/.test(x)?x:'turn:'+x);
+  if(a.length===1&&a[0].startsWith('turn:')&&!a[0].includes('transport='))a.push(a[0]+'?transport=tcp');
+  return a.join(',');
+}
+const packRelay=t=>btoa(unescape(encodeURIComponent(JSON.stringify([t.urls,t.username,t.credential])))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+function unpackRelay(b){
+  try{const j=JSON.parse(decodeURIComponent(escape(atob(b.replace(/-/g,'+').replace(/_/g,'/')))));
+    if(Array.isArray(j)&&j[0])return{urls:normUrls(String(j[0])),username:String(j[1]||''),credential:String(j[2]||'')}}catch(e){}
+  return null;
+}
+let relayFromLink=false,relaySetupMsg='';
+(function linkRelay(){
+  const raw=location.hash.slice(1);if(!raw.includes('~'))return;
+  const [pre,blob]=raw.split('~'),t=unpackRelay(blob);
+  if(t){
+    if(pre.toUpperCase()==='RELAY'){store.set('cc-turn',JSON.stringify(t));relaySetupMsg='Relay saved on this device. Every invite link you copy will now include it, so friends on blocked networks can connect.'}
+    else{store.set('cc-turnlink',JSON.stringify(t));relayFromLink=true}
+  }
+  history.replaceState(null,'',location.pathname+location.search+(pre.toUpperCase()==='RELAY'?'':'#'+pre));
+})();
+function currentRelay(){
+  for(const k of ['cc-turn','cc-turnlink']){try{const t=JSON.parse(store.get(k)||'null');if(t&&t.urls)return{t,src:k}}catch(e){}}
+  const c=window.COUCHCAST_TURN||{};return c.urls?{t:c,src:'site'}:null;
+}
 function iceServers(){
   const list=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}];
-  let t=window.COUCHCAST_TURN||{};
-  try{const saved=JSON.parse(store.get('cc-turn')||'null');if(saved&&saved.urls)t=saved}catch(e){}
-  if(t.urls)list.push({urls:t.urls.split(',').map(s=>s.trim()),username:t.username,credential:t.credential});
+  const r=currentRelay();
+  if(r)list.push({urls:normUrls(r.t.urls).split(','),username:r.t.username,credential:r.t.credential});
   return list;
 }
 /* Metered / Open Relay: fetch short-lived TURN credentials once per page load */
@@ -362,7 +388,8 @@ async function loadIce(){
     }catch(e){console.warn('TURN credentials',e)}
   }
   iceList=list;
-  $('relayState').textContent=relayOn?'Relay is set up on this device.':'No relay set up on this device yet.';
+  const r=currentRelay();
+  $('relayState').textContent=!relayOn?'No relay set up on this device yet.':r&&r.src==='cc-turnlink'?'Relay is set up (it came with your invite link).':'Relay is set up on this device. Invite links you copy include it.';
   return list;
 }
 let iceReady=loadIce();
@@ -1164,7 +1191,8 @@ if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostnam
 /* ================= EVENTS ================= */
 try{$('name').value=store.get('cc-name')||''}catch(e){}
 try{const t=JSON.parse(store.get('cc-turn')||'null');if(t){$('turnUrl').value=t.urls||'';$('turnUser').value=t.username||'';$('turnPass').value=t.credential||''}}catch(e){}
-const h=location.hash.slice(1).toUpperCase();
+const h=location.hash.slice(1).split('~')[0].toUpperCase();
+if(relaySetupMsg){$('lobbyMsg').textContent=relaySetupMsg}
 if(/^[A-Z0-9]{6}$/.test(h)){$('joinCode').value=h;$('lobbyMsg').textContent='You were invited to room '+h+'. Enter your name and press Join.';($('name').value?$('joinBtn'):$('name')).focus()}
 $('vClear').checked=store.get('cc-vclear')==='1';$('vDelay').value=+store.get('cc-vdelay')||0;$('vDelayOut').textContent=$('vDelay').value;
 if(store.get('cc-clear')==='0')$('clearDlg').checked=false;
@@ -1175,7 +1203,8 @@ $('joinCode').addEventListener('keydown',e=>{if(e.key==='Enter')startJoin()});
 $('joinPw').addEventListener('keydown',e=>{if(e.key==='Enter')startJoin()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter'&&$('joinCode').value)startJoin()});
 $('turnSave').onclick=async()=>{
-  store.set('cc-turn',JSON.stringify({urls:$('turnUrl').value.trim(),username:$('turnUser').value.trim(),credential:$('turnPass').value}));
+  const u=$('turnUrl').value.trim();
+  if(u)store.set('cc-turn',JSON.stringify({urls:normUrls(u),username:$('turnUser').value.trim(),credential:$('turnPass').value}));else store.del('cc-turn');
   const api=$('turnApi').value.trim();if(api)store.set('cc-turnapi',api);else store.del('cc-turnapi');
   $('turnMsg').textContent='Checking…';iceReady=loadIce();await iceReady;
   $('turnMsg').textContent=relayOn?'Saved. The relay will be used for the next room you create or join.':'Saved, but no relay could be loaded. Check the link or details.';
