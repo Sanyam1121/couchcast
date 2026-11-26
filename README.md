@@ -12,6 +12,14 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **TV mode**: full-screen layout with big controls for TV browsers and remotes (OK = play/pause, arrows = skip and volume, Back = exit). Smart-TV browsers switch to it automatically. The cast button explains casting a tab or opening Couchcast on the TV.
 - **Room controls**: password for new people, lock the room, remove someone, hand host to a friend. If the host leaves or closes the tab, the longest-present friend takes over and the night carries on.
 - **Queue and resume**: pick several files to make a queue; the next one starts with a countdown. Couchcast remembers where each movie was stopped and offers to resume. In *Everyone has the file* mode friends can pick a whole folder of episodes and their copy switches automatically.
+- **Watch anything**: share a browser tab or your screen, or paste a YouTube or direct video link and everyone plays it in step on their own device.
+- **Camera bubbles**: optional small webcams on the screen; each person can hide them.
+- **Ready check**: the host asks "ready?", then everyone gets a 3-2-1 countdown.
+- **Vote on what's next**: friends suggest titles and vote; the next movie in the queue is the most-voted one.
+- **Bigger groups**: the host sends the stream straight to a few friends (you choose how many) and friends with good internet pass it on to the rest. Quality drops on its own for a friend whose connection struggles, instead of stuttering.
+- **Same-file check**: in *Everyone has the file* mode, Couchcast checks each friend picked the same file as the host and flags a different version.
+- **Subtitle finder**: search by movie name (one-click with a free OpenSubtitles key saved on your device, otherwise links to subtitle sites); .zip subtitle files work too.
+- **Movie nights**: plan a time, share an invite with a live countdown and calendar buttons; friends' pages join on their own when the host opens the room.
 - **Chat, reactions, subtitles** (.srt/.vtt shown to everyone), invite links, connection stats.
 - **Install as an app** on phones and computers (Install button in the header; on iPhone: Share → Add to Home Screen).
 
