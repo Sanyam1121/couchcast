@@ -26,7 +26,7 @@
 window.COUCHCAST_TURN_API = "";
 window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 </script>
-<link rel="stylesheet" href="style.css?v=20261128a">
+<link rel="stylesheet" href="style.css?v=20261128b">
 </head>
 <body>
 <header>
@@ -235,7 +235,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
           <input id="mbps" type="range" min="4" max="80" step="1" value="25">
           <div class="row" style="flex-wrap:nowrap">
             <div style="flex:1"><label for="fps">Max FPS</label><select id="fps"><option>24</option><option>30</option><option selected>60</option><option>120</option></select></div>
-            <div style="flex:1"><label for="codec">Codec</label><select id="codec"><option value="H264">H.264 (GPU)</option><option value="VP9">VP9</option><option value="AV1">AV1</option></select></div>
+            <div style="flex:1"><label for="codec">Codec</label><select id="codec"><option value="auto" selected>Auto (best for this computer)</option><option value="H264">H.264</option><option value="VP9">VP9</option><option value="AV1">AV1</option></select></div>
           </div>
           <label for="maxDirect">Send straight to up to</label>
           <select id="maxDirect"><option value="1">1 friend</option><option value="2">2 friends</option><option value="3" selected>3 friends</option><option value="4">4 friends</option><option value="6">6 friends</option><option value="99">Everyone</option></select>
@@ -278,6 +278,6 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="sheet"><div id="modalBody"></div><button class="ghost" id="modalClose" style="margin-top:8px">Close</button></div></div>
 <div id="toast" role="alert"></div>
 
-<script src="app.js?v=20261128a"></script>
+<script src="app.js?v=20261128b"></script>
 </body>
 </html>

@@ -296,15 +296,48 @@ function tuneOpus(sdp){
   if(fi>=0)L[fi]=line;else L.splice(L.indexOf(rm)+1,0,line);
   return L.join('\r\n');
 }
-function preferCodec(sdp){
-  sdp=tuneOpus(sdp);
-  const codec=$('codec').value;
+// Picks the video codec. "auto" asks the browser which codecs this computer can encode with its graphics chip.
+let autoCodec='H264';
+async function detectCodec(){
+  const mc=navigator.mediaCapabilities;if(!mc||!mc.encodingInfo)return;
+  const test=async(ct)=>{try{const r=await mc.encodingInfo({type:'webrtc',video:{contentType:ct,width:1920,height:1080,bitrate:8e6,framerate:60}});return r}catch(e){return null}};
+  const [h,v9,av]=await Promise.all([test('video/H264'),test('video/VP9'),test('video/AV1')]);
+  // H.264 decodes in hardware on nearly every phone, TV and laptop, so it wins whenever the host can encode it in hardware
+  if(h&&h.supported&&h.powerEfficient)autoCodec='H264';
+  else if(v9&&v9.supported&&v9.powerEfficient)autoCodec='VP9';
+  else if(av&&av.supported&&av.powerEfficient)autoCodec='AV1';
+  else autoCodec='H264';
+}
+detectCodec();
+function pickCodec(){const v=$('codec').value;return v==='auto'?autoCodec:v}
+function fmtpOf(L,pt){return L.find(l=>l.startsWith('a=fmtp:'+pt+' '))||''}
+// o.codec / o.mbps come from the host with the stream, so both ends agree on what the host chose
+const CODECS=['H264','VP9','AV1','VP8'];
+function preferCodec(sdp,o){
+  o=o||{};sdp=tuneOpus(sdp);
+  const codec=CODECS.includes(o.codec)?o.codec:pickCodec();
   const L=sdp.split('\r\n'),mi=L.findIndex(l=>l.startsWith('m=video'));if(mi<0)return sdp;
-  const pts=L.filter(l=>new RegExp('^a=rtpmap:\\d+ '+codec+'/','i').test(l)).map(l=>l.split(':')[1].split(' ')[0]);
-  if(!pts.length)return sdp;
-  const rtx=L.filter(l=>/^a=fmtp:\d+ apt=\d+/.test(l)&&pts.includes(l.split('apt=')[1])).map(l=>l.split(':')[1].split(' ')[0]);
-  const pref=[...pts,...rtx],p=L[mi].split(' ');
-  L[mi]=[...p.slice(0,3),...pref,...p.slice(3).filter(x=>!pref.includes(x))].join(' ');
+  let pts=L.filter(l=>new RegExp('^a=rtpmap:\\d+ '+codec+'/','i').test(l)).map(l=>l.split(':')[1].split(' ')[0]);
+  if(codec==='H264'){
+    // High profile packs noticeably more picture into the same bitrate than the Baseline profile browsers list first
+    const rank=pt=>{const m=/profile-level-id=([0-9a-f]{2})/i.exec(fmtpOf(L,pt)),id=m?m[1].toLowerCase():'';const pm=/packetization-mode=1/.test(fmtpOf(L,pt));return (id==='64'?0:id==='4d'?1:2)*2+(pm?0:1)};
+    pts=pts.sort((a,b)=>rank(a)-rank(b));
+  }
+  if(pts.length){
+    const rtx=L.filter(l=>/^a=fmtp:\d+ apt=\d+/.test(l)&&pts.includes(l.split('apt=')[1])).map(l=>l.split(':')[1].split(' ')[0]);
+    const pref=[...pts,...rtx],p=L[mi].split(' ');
+    L[mi]=[...p.slice(0,3),...pref,...p.slice(3).filter(x=>!pref.includes(x))].join(' ');
+  }
+  // Start sharp: browsers otherwise begin around 0.3 Mbps and take many seconds to climb
+  const max=Math.round(Math.max(2,Math.min(80,+o.mbps||+$('mbps').value||25))*1000),start=Math.min(max,8000),min=Math.min(1000,Math.round(max/4));
+  const vpts=L[mi].split(' ').slice(3);
+  for(const pt of vpts){
+    const rm=L.find(l=>l.startsWith('a=rtpmap:'+pt+' '));if(!rm||/ (rtx|red|ulpfec|flexfec-03)\//i.test(rm))continue;
+    const want='x-google-start-bitrate='+start;void min;
+    const fi=L.findIndex(l=>l.startsWith('a=fmtp:'+pt+' '));
+    if(fi>=0){if(!/x-google-start-bitrate/.test(L[fi]))L[fi]+=';'+want}
+    else L.splice(L.indexOf(rm)+1,0,'a=fmtp:'+pt+' '+want);
+  }
   return L.join('\r\n');
 }
 
@@ -431,6 +464,7 @@ function onHostData(conn,d){
   if(d.t==='seat'){if(!hostSeat(conn.peer,d.i))conn.send({t:'seatno'})}
   if(d.t==='spin'){hostSpin(avName({av:c.av,name:c.name}))}
   if(d.t==='look'){c.av=cleanAv(d.av);c.col=cleanCol(d.col);pushPeople()}
+  if(d.t==='rx'){c.rx={fps:Math.max(0,Math.min(240,+d.fps||0)),fz:Math.max(0,Math.min(50,+d.fz||0)),at:performance.now()};c.rxFz=(c.rxFz||0)+c.rx.fz}
   if(d.t==='health'){const st=d.s==='stall'?'stall':'ok';if(st!==c.health){c.health=st;c.stallSince=st==='stall'?performance.now():0;if(st==='ok')c.ignore=false}}
   if(d.t==='bye'){c.bye=true}
   if(d.t==='laser'&&isFinite(d.x)&&isFinite(d.y)){const x=+d.x,y=+d.y,n=avName({av:c.av,name:c.name});showLaser(x,y,n,c.col);broadcast({t:'laser',x,y,n,col:c.col},conn.peer)}
@@ -450,10 +484,11 @@ function onHostData(conn,d){
 function callViewer(id){
   const c=conns.get(id);if(!c||!stream||c.name==='…'||c.remote)return;
   if(c.call)c.call.close();
-  const call=peer.call(id,stream,{sdpTransform:preferCodec,metadata:{kind:'movie'}});
+  const vc=pickCodec(),mb=+$('mbps').value;
+  const call=peer.call(id,stream,{sdpTransform:sdp=>preferCodec(sdp,{codec:vc,mbps:mb}),metadata:{kind:'movie',codec:vc,mbps:mb}});
   if(!call)return;
   c.call=call;boost(call);
-  adaptCall(call,{max:()=>+$('mbps').value,onq:st=>{const cc=conns.get(id);if(cc&&cc.call===call&&(cc.q!==st.q||cc.lvl!==st.lvl)){cc.q=st.q;cc.lvl=st.lvl;pushPeopleSoon()}}});
+  adaptCall(call,{max:()=>+$('mbps').value,rx:()=>{const cc=conns.get(id);return cc&&cc.call===call?cc:null},onq:st=>{const cc=conns.get(id);if(cc&&cc.call===call&&(cc.q!==st.q||cc.lvl!==st.lvl)){cc.q=st.q;cc.lvl=st.lvl;pushPeopleSoon()}}});
 }
 async function boost(call){
   const mbps=+$('mbps').value,fps=+$('fps').value;
@@ -463,7 +498,7 @@ async function boost(call){
     if(s&&pc.connectionState==='connected'){
       const p=s.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
       p.encodings[0].maxBitrate=mbps*1e6;p.encodings[0].maxFramerate=fps;p.encodings[0].scaleResolutionDownBy=1;
-      p.degradationPreference='maintain-resolution';
+      p.degradationPreference='maintain-framerate';
       try{await s.setParameters(p)}catch(e){console.warn('setParameters',e)}
       const a=pc.getSenders().find(x=>x.track&&x.track.kind==='audio');
       if(a){
@@ -511,7 +546,7 @@ function makeStream(){
     const captured=cap.call(vid),m=ensureMix();
     const audio=m?m.dest.stream.getAudioTracks():captured.getAudioTracks();
     stream=new MediaStream([...captured.getVideoTracks(),...audio]);
-    stream.getVideoTracks().forEach(t=>{try{t.contentHint='detail'}catch(e){}});
+    stream.getVideoTracks().forEach(t=>{try{t.contentHint='motion'}catch(e){}});
   }
   stream.getAudioTracks().forEach(t=>{try{t.contentHint='music'}catch(e){}});
   wakeAudio();
@@ -809,7 +844,8 @@ function viewerLoad(f){
 function onMovieCall(call){
   if(inCall)inCall.close();inCall=call;
   const via=call.metadata&&call.metadata.via?String(call.metadata.via).slice(0,24):'';
-  call.answer(undefined,{sdpTransform:preferCodec});
+  const md=call.metadata||{};relayFmt={codec:CODECS.includes(md.codec)?md.codec:'',mbps:Math.min(10,+md.mbps||10)};
+  call.answer(undefined,{sdpTransform:sdp=>preferCodec(sdp,{codec:md.codec,mbps:md.mbps})});
   call.on('stream',s=>{
     if(mode!=='stream')return;
     inStream=s;if(relayKids.size)forwardAll();
@@ -829,8 +865,9 @@ function onMovieCall(call){
     setTimeout(()=>{if(!inCall&&mode==='stream'&&!isHost){vid.srcObject=null;inStream=null;clearInterval(statTimer);$('stats').style.display='none';emptyMsg('<div>Waiting for the host to start the movie…</div>')}},1500);
   });
 }
+let rxFz=-1;
 function watchStats(call){
-  clearInterval(statTimer);let last=0,lastA=0,lastT=performance.now();
+  clearInterval(statTimer);rxFz=-1;let last=0,lastA=0,lastT=performance.now();
   statTimer=setInterval(async()=>{
     const pc=call.peerConnection;if(!pc)return;
     try{
@@ -843,6 +880,10 @@ function watchStats(call){
       r.forEach(s=>{
         if(s.type==='inbound-rtp'&&s.kind==='video'){
           const mb=last?((s.bytesReceived-last)*8/dt/1e6):0;last=s.bytesReceived;
+          // tell whoever sends us the picture how smoothly it really plays here, so a slow phone gets a lighter stream
+          const fz=s.freezeCount||0,frz=rxFz<0?0:Math.max(0,fz-rxFz);rxFz=fz;
+          const up=call.metadata&&call.metadata.via?null:hostConn;
+          if(up&&up.open&&!document.hidden&&!vid.paused)up.send({t:'rx',fps:Math.round(s.framesPerSecond||0),fz:frz,h:s.frameHeight||0});
           vtxt=(s.frameWidth||'?')+'×'+(s.frameHeight||'?')+' · '+Math.round(s.framesPerSecond||0)+' fps · '+mb.toFixed(1)+' Mbps';
         }
         if(s.type==='inbound-rtp'&&s.kind==='audio'){
@@ -1053,7 +1094,7 @@ async function startShare(){
   if(sharing)return stopShare();
   if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia)return toast('Screen sharing needs Chrome or Edge on a computer.');
   let s;
-  try{s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30,max:60},width:{max:3840},height:{max:2160}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},systemAudio:'include',selfBrowserSurface:'exclude',surfaceSwitching:'include'})}
+  try{s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:Math.min(60,+$('fps').value||30),max:60},width:{max:3840},height:{max:2160}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},systemAudio:'include',selfBrowserSurface:'exclude',surfaceSwitching:'include'})}
   catch(e){return}
   if(mode!=='stream')setMode('stream');
   if(vid.src&&!vid.paused)vid.pause();
@@ -1209,10 +1250,11 @@ function assignAll(){
   for(const c of conns.values()){if(c.call){c.call.close();c.call=null}c.parent=null}
   for(const id of conns.keys())assignViewer(id);
 }
+let relayFmt={codec:'',mbps:10};
 function forward(id){
   const old=relayKids.get(id);if(old&&old.call)try{old.call.close()}catch(e){}
   if(!peer||!inStream||!inStream.getVideoTracks().some(t=>t.readyState==='live')){relayKids.set(id,{call:null});return}
-  const call=peer.call(id,inStream,{sdpTransform:preferCodec,metadata:{kind:'movie',via:myName}});
+  const call=peer.call(id,inStream,{sdpTransform:sdp=>preferCodec(sdp,relayFmt),metadata:{kind:'movie',via:myName,codec:relayFmt.codec,mbps:relayFmt.mbps}});
   relayKids.set(id,{call});
   if(call)adaptCall(call,{max:10});
 }
@@ -1225,19 +1267,24 @@ function adaptCall(call,o){
     const pc=call.peerConnection;
     if(!pc||pc.connectionState==='closed'||call.closed){clearInterval(iv);return}
     if(pc.connectionState!=='connected')return;
-    let loss=0,avail=0,lim='',h=0;
+    let loss=0,avail=0,lim='',h=0,sent=0;
     try{const r=await pc.getStats();r.forEach(x=>{
       if(x.type==='remote-inbound-rtp'&&x.kind==='video')loss=x.fractionLost||0;
       if(x.type==='candidate-pair'&&x.nominated&&x.state==='succeeded'&&x.availableOutgoingBitrate)avail=x.availableOutgoingBitrate;
-      if(x.type==='outbound-rtp'&&x.kind==='video'){lim=x.qualityLimitationReason||'';h=x.frameHeight||h}
+      if(x.type==='outbound-rtp'&&x.kind==='video'){lim=x.qualityLimitationReason||'';h=x.frameHeight||h;sent=x.framesPerSecond||sent}
     })}catch(e){return}
     const max=(typeof o.max==='function'?o.max():o.max)*1e6,cap=l=>Math.min(max,(LV[l].b||1e9)*1e6);
     const now=performance.now();
-    const bad=loss>.05||(lim==='bandwidth'&&avail&&avail<cap(st.lvl)*.7);
-    const good=loss<.01&&(!avail||st.lvl===0||avail>cap(st.lvl-1)*1.3);
+    // the friend's own report: a device that can't keep up drops frames or freezes even on a perfect network
+    const rc=o.rx&&o.rx(),fresh=rc&&rc.rx&&now-rc.rx.at<7000;
+    const fz=fresh?(rc.rxFz||0):0;if(rc)rc.rxFz=0;
+    const slow=fresh&&((sent>=20&&rc.rx.fps>0&&rc.rx.fps<sent*.7)||fz>=2);
+    const bad=loss>.05||(lim==='bandwidth'&&avail&&avail<cap(st.lvl)*.7)||slow;
+    const good=loss<.01&&!slow&&!fz&&(!avail||st.lvl===0||avail>cap(st.lvl-1)*1.3);
     let lvl=st.lvl;
-    if(bad){st.goodSince=0;if(now-st.last>6000&&lvl<LV.length-1)lvl++}
-    else if(good){if(!st.goodSince)st.goodSince=now;else if(lvl>0&&now-st.goodSince>20000){lvl--;st.goodSince=now}}
+    // a device that was too slow waits longer each time before we try the sharper picture again
+    if(bad){st.goodSince=0;if(now-st.last>6000&&lvl<LV.length-1){lvl++;if(slow)st.wait=Math.min(160000,(st.wait||20000)*2)}}
+    else if(good){if(!st.goodSince)st.goodSince=now;else if(lvl>0&&now-st.goodSince>(st.wait||20000)){lvl--;st.goodSince=now}}
     else st.goodSince=0;
     st.q=h?(h>=2000?'4K':h>=1400?'1440p':h>=1000?'1080p':h>=700?'720p':h>=460?'480p':h+'p'):'';
     if(lvl!==st.lvl){st.lvl=lvl;st.last=now;await applyLevel(call,cap(lvl),lvl)}
@@ -1248,7 +1295,7 @@ async function applyLevel(call,bps,lvl){
   const pc=call.peerConnection,s=pc&&pc.getSenders().find(x=>x.track&&x.track.kind==='video');if(!s)return;
   const p=s.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
   p.encodings[0].maxBitrate=bps;p.encodings[0].scaleResolutionDownBy=LV[lvl].s;
-  p.degradationPreference=lvl?'balanced':'maintain-resolution';
+  p.degradationPreference=lvl?'balanced':'maintain-framerate';
   try{await s.setParameters(p)}catch(e){}
 }
 
@@ -1646,7 +1693,7 @@ const I18N={
 'Vote':['वोट करें','ਵੋਟ ਪਾਓ'],
 'Voted':['वोट दिया','ਵੋਟ ਪਾਈ'],
 'Watching':['देख रहे हैं','ਦੇਖ ਰਹੇ ਹਨ'],
-'Chat':['चैट','ਚੈਟ'],'People':['लोग','ਲੋਕ'],'Settings':['सेटिंग्स','ਸੈਟਿੰਗਾਂ'],'Stream quality':['स्ट्रीम क्वालिटी','ਸਟ੍ਰੀਮ ਕੁਆਲਿਟੀ'],
+'Chat':['चैट','ਚੈਟ'],'People':['लोग','ਲੋਕ'],'Settings':['सेटिंग्स','ਸੈਟਿੰਗਾਂ'],'Stream quality':['स्ट्रीम क्वालिटी','ਸਟ੍ਰੀਮ ਕੁਆਲਿਟੀ'],'Auto (best for this computer)':['ऑटो (इस कंप्यूटर के लिए सबसे अच्छा)','ਆਟੋ (ਇਸ ਕੰਪਿਊਟਰ ਲਈ ਸਭ ਤੋਂ ਵਧੀਆ)'],
 'Send':['भेजें','ਭੇਜੋ'],
 'Say something':['कुछ कहें','ਕੁਝ ਕਹੋ'],
 'Show connection stats':['कनेक्शन की जानकारी दिखाएँ','ਕਨੈਕਸ਼ਨ ਦੀ ਜਾਣਕਾਰੀ ਦਿਖਾਓ'],
