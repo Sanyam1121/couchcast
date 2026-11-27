@@ -165,7 +165,7 @@ function ensureMix(){
     dry.connect(lim);wet.connect(lim);
     const dest=ac.createMediaStreamDestination();dest.channelCount=2;lim.connect(dest);
     const local=ac.createGain();lim.connect(local);local.connect(duck);
-    mix={dest,local,cL,cR,dry,wet};
+    mix={dest,local,cL,cR,dry,wet,pre};
     setClear($('clearDlg').checked);
     vid.muted=false;vid.volume=1;applyVol();
     return mix;
@@ -221,6 +221,7 @@ function addChat(n,m,sys,av,col,sp){
   if(sys){d.className='sys';d.innerHTML=tm+esc(m)}else d.innerHTML=tm+who+fmtMsg(m,sp);
   const box=$('chat');box.appendChild(d);while(box.children.length>300)box.firstChild.remove();box.scrollTop=1e9;
   if(!sys&&n!==myName&&typeof chatSeen==='function'&&!chatSeen()){unread++;drawBadge()}
+  if(n!==myName&&(!sys||/ joined$/.test(m)))notify(sys?m:n+': '+(hasSpoiler(m,sp)?'🙈 spoiler':m));
   if(document.body.classList.contains('tv')||document.fullscreenElement===stage){
     const t=document.createElement('div');t.innerHTML=sys?esc(m):who+(hasSpoiler(m,sp)?'🙈 <i>spoiler</i>':esc(m));
     const tc=$('tvchat');tc.appendChild(t);while(tc.children.length>3)tc.firstChild.remove();setTimeout(()=>t.remove(),9000);
@@ -260,6 +261,8 @@ function enterRoom(){
   $('codeOut').textContent=code;history.replaceState(null,'','#'+code);$('lobbyMsg').textContent='';
   $('mySoundBox').style.display=isHost?'none':'block';
   $('roomBox').style.display=isHost?'block':'none';
+  $('saverRow').style.display=isHost?'none':'flex';
+  data.bytes=0;data.last.clear();data.hist=[];setTimeout(landCheck,300);
   renderVotes(lastVotes);
   updateControls();
   if(/Web0S|webOS|SmartTV|SMART-TV|Tizen|BRAVIA|AFT[A-Z]|CrKey|GoogleTV/i.test(navigator.userAgent))setTV(true);
@@ -449,7 +452,7 @@ function onHostData(conn,d){
         if(roomPw&&String(d.pw||'')!==roomPw)return deny(conn,'password');
       }
     }
-    c.name=nm;c.helper=!!d.helper;c.av=cleanAv(d.av);c.col=cleanCol(d.col);if(!(c.seat>=0))c.seat=freeSeat(conn.peer);c.health='ok';c.stallSince=0;c.ignore=false;away.delete(nm);
+    c.name=nm;c.helper=!!d.helper;c.saver=!!d.saver;c.av=cleanAv(d.av);c.col=cleanCol(d.col);if(!(c.seat>=0))c.seat=freeSeat(conn.peer);c.health='ok';c.stallSince=0;c.ignore=false;away.delete(nm);
     if(!c.back)addChat('',c.name+' joined',true);
     conn.send({t:'hello',mode,ctl:allowCtl,title,sub:curSub,link:mode==='link'?link:null,fi:fileInfo,votes:voteItems(),marks,moments:momentsList});
     if(M.ok())conn.send(state());
@@ -464,6 +467,14 @@ function onHostData(conn,d){
   if(d.t==='seat'){if(!hostSeat(conn.peer,d.i))conn.send({t:'seatno'})}
   if(d.t==='spin'){hostSpin(avName({av:c.av,name:c.name}))}
   if(d.t==='look'){c.av=cleanAv(d.av);c.col=cleanCol(d.col);pushPeople()}
+  if(d.t==='saver'){
+    const on=!!d.on;if(on===!!c.saver)return;c.saver=on;if(on)c.helper=false;
+    // a data-saver friend always gets a direct, light stream (it costs the host little)
+    if(on&&c.parent){const p=conns.get(c.parent);if(p)try{p.conn.send({t:'relayStop',id:conn.peer})}catch(e){}c.parent=null;callViewer(conn.peer)}
+    if(on&&kidsOf(conn.peer).length)assignAll();
+    pushPeopleSoon();return;
+  }
+  if(d.t==='batt'){const p=Math.max(0,Math.min(100,Math.round(+d.p||0)));const m=c.name+'\'s battery is at '+p+'%. Friends watching through '+c.name+' may lose the picture if it runs out.';addChat('',m,true);broadcast({t:'chat',n:'Couchcast',m});return}
   if(d.t==='rx'){c.rx={fps:Math.max(0,Math.min(240,+d.fps||0)),fz:Math.max(0,Math.min(50,+d.fz||0)),at:performance.now()};c.rxFz=(c.rxFz||0)+c.rx.fz}
   if(d.t==='health'){const st=d.s==='stall'?'stall':'ok';if(st!==c.health){c.health=st;c.stallSince=st==='stall'?performance.now():0;if(st==='ok')c.ignore=false}}
   if(d.t==='bye'){c.bye=true}
@@ -488,7 +499,7 @@ function callViewer(id){
   const call=peer.call(id,stream,{sdpTransform:sdp=>preferCodec(sdp,{codec:vc,mbps:mb}),metadata:{kind:'movie',codec:vc,mbps:mb}});
   if(!call)return;
   c.call=call;boost(call);
-  adaptCall(call,{max:()=>+$('mbps').value,rx:()=>{const cc=conns.get(id);return cc&&cc.call===call?cc:null},onq:st=>{const cc=conns.get(id);if(cc&&cc.call===call&&(cc.q!==st.q||cc.lvl!==st.lvl)){cc.q=st.q;cc.lvl=st.lvl;pushPeopleSoon()}}});
+  adaptCall(call,{max:()=>+$('mbps').value,saver:()=>{const cc=conns.get(id);return !!(cc&&cc.saver)},rx:()=>{const cc=conns.get(id);return cc&&cc.call===call?cc:null},onq:st=>{const cc=conns.get(id);if(cc&&cc.call===call&&(cc.q!==st.q||cc.lvl!==st.lvl)){cc.q=st.q;cc.lvl=st.lvl;pushPeopleSoon()}}});
 }
 async function boost(call){
   const mbps=+$('mbps').value,fps=+$('fps').value;
@@ -558,7 +569,7 @@ vid.addEventListener('playing',()=>{
   if(!isHost||audioChecked||!vid.src)return;audioChecked=true;
   setTimeout(()=>{
     const silent=('webkitAudioDecodedByteCount' in vid&&vid.webkitAudioDecodedByteCount===0)||(vid.audioTracks&&vid.audioTracks.length===0);
-    if(silent&&!vid.paused){
+    if(silent&&!vid.paused&&!auxOn&&fileProblem!=='audio'){
       toast('No sound found in this file');
       addChat('','This movie\'s sound format (often AC3/DTS 5.1 in 4K files) can\'t be played by browsers, so nobody will hear it. Convert the audio to AAC (see the README) or use another copy.',true);
     }
@@ -576,7 +587,8 @@ function hostLoad(f,opts){
   if(mode==='link')setMode('stream');
   clearTimeout(nextTimer);overlay('');
   if(vid.src)URL.revokeObjectURL(vid.src);
-  vid.srcObject=null;vid.src=URL.createObjectURL(f);vid.muted=false;emptyMsg('');
+  stopAux();vid.srcObject=null;vid.src=URL.createObjectURL(f);vid.muted=false;emptyMsg('');
+  checkFile(f,'fileCheck');
   fileInfo=null;fingerprint(f).then(fp=>{fileInfo={fp};broadcast({t:'fileinfo',fi:fileInfo})});
   for(const c of conns.values())c.match='';
   ensureMix();
@@ -720,7 +732,7 @@ function connectHost(){
   },15000);
   hostConn.on('open',()=>{
     retries=0;
-    hostConn.send({t:'join',n:myName,pw:$('joinPw').value,helper:$('helpShare').checked,av:myLook.av,col:myLook.col});
+    hostConn.send({t:'join',n:myName,pw:$('joinPw').value,helper:$('helpShare').checked&&!$('saverOn').checked,av:myLook.av,col:myLook.col,saver:$('saverOn').checked});
   });
   hostConn.on('data',onViewerData);
   hostConn.on('close',()=>{if(!leaving)retryHost()});
@@ -829,7 +841,8 @@ function autoPick(){
 function viewerLoad(f){
   if(!f)return;
   if(vid.src)URL.revokeObjectURL(vid.src);
-  vid.srcObject=null;vid.src=URL.createObjectURL(f);emptyMsg('');loadedTitle=baseName(f.name).toLowerCase();
+  stopAux();vid.srcObject=null;vid.src=URL.createObjectURL(f);emptyMsg('');loadedTitle=baseName(f.name).toLowerCase();
+  checkFile(f,'vFileCheck');
   viewerUseElement();
   myFp=null;$('matchMsg').textContent='Checking it matches the host\'s file…';$('matchMsg').className='hint';
   fingerprint(f).then(fp=>{myFp=fp;if(vid.readyState>0)compareFiles()});
@@ -1056,7 +1069,7 @@ async function showLink(){
   if(link.kind==='url'){
     lvid.style.display='block';lvid.src=link.url;applyLinkVol();
     lvid.onerror=()=>{toast('That video link could not be played here.');emptyMsg('<div>This link could not be played. Direct video links (ending in .mp4 or .webm) and YouTube links work.</div>')};
-    lvid.onloadedmetadata=()=>{if(isHost){broadcast(state());updateControls()}else applyRemote()};
+    lvid.onloadedmetadata=()=>{if(isHost){broadcast(state());updateControls();offerLinkResume()}else applyRemote()};
     return;
   }
   await loadYTApi();
@@ -1068,7 +1081,7 @@ async function showLink(){
   yt=new YT.Player('ytp',{width:'100%',height:'100%',videoId:link.id,playerVars:{controls:0,disablekb:1,rel:0,modestbranding:1,playsinline:1,iv_load_policy:3,fs:0,origin:location.origin},events:{
     onReady:()=>{
       if(link!==mine||gen!==linkGen)return;ytReady=true;applyLinkVol();
-      if(isHost){const t=yt.getVideoData&&yt.getVideoData().title;if(t){setNow(t);broadcast({t:'title',title:t});loadMarks();watched(t)}broadcast(state());updateControls()}
+      if(isHost){const t=yt.getVideoData&&yt.getVideoData().title;if(t){setNow(t);broadcast({t:'title',title:t});loadMarks();watched(t)}broadcast(state());updateControls();setTimeout(offerLinkResume,600)}
       else applyRemote();
     },
     onStateChange:e=>{
@@ -1082,7 +1095,7 @@ async function showLink(){
 function hostLoadLink(){
   const l=parseLink($('linkUrl').value);
   if(!l){toast('Paste a YouTube link, or a direct video link starting with https://');return}
-  link=l;
+  link=l;resumeAsked='';
   const name=l.kind==='yt'?'YouTube video':decodeURIComponent(baseName(l.url.split('?')[0].split('/').pop()||'Video link'));
   setNow(name);broadcast({t:'link',link});broadcast({t:'title',title:name});resetMoments();loadMarks();
   addChat('','Now playing: '+name,true);broadcast({t:'chat',n:'Couchcast',m:'Now playing: '+name});
@@ -1233,12 +1246,12 @@ function bestNext(){
 /* ---------- friends pass the stream on, and quality that adapts per friend ---------- */
 let peopleT=null;function pushPeopleSoon(){clearTimeout(peopleT);peopleT=setTimeout(pushPeople,400)}
 function kidsOf(pid){return [...conns.entries()].filter(([,c])=>c.parent===pid).map(([id])=>id)}
-function directCount(except){let n=0;for(const [id,c] of conns)if(id!==except&&c.name!=='…'&&!c.parent&&c.call)n++;return n}
+function directCount(except){let n=0;for(const [id,c] of conns)if(id!==except&&c.name!=='…'&&!c.parent&&c.call&&!c.saver)n++;return n}
 function assignViewer(id){
   const c=conns.get(id);if(!c||!stream||c.name==='…'||c.remote)return;
   const max=+$('maxDirect').value||3;
-  if(directCount(id)<max){c.parent=null;callViewer(id);pushPeopleSoon();return}
-  const cands=[...conns.entries()].filter(([pid,p])=>pid!==id&&p.name!=='…'&&!p.parent&&p.call&&p.helper&&kidsOf(pid).length<2&&(p.lvl||0)<2)
+  if(c.saver||directCount(id)<max){c.parent=null;callViewer(id);pushPeopleSoon();return}
+  const cands=[...conns.entries()].filter(([pid,p])=>pid!==id&&p.name!=='…'&&!p.parent&&p.call&&p.helper&&!p.saver&&kidsOf(pid).length<2&&(p.lvl||0)<2)
     .sort((a,b)=>kidsOf(a[0]).length-kidsOf(b[0]).length);
   if(!cands.length){c.parent=null;callViewer(id);pushPeopleSoon();return}
   const [pid,p]=cands[0];
@@ -1287,14 +1300,20 @@ function adaptCall(call,o){
     else if(good){if(!st.goodSince)st.goodSince=now;else if(lvl>0&&now-st.goodSince>(st.wait||20000)){lvl--;st.goodSince=now}}
     else st.goodSince=0;
     st.q=h?(h>=2000?'4K':h>=1400?'1440p':h>=1000?'1080p':h>=700?'720p':h>=460?'480p':h+'p'):'';
-    if(lvl!==st.lvl){st.lvl=lvl;st.last=now;await applyLevel(call,cap(lvl),lvl)}
+    const sv=!!(o.saver&&o.saver());
+    if(lvl!==st.lvl||sv!==!!st.saver){st.lvl=lvl;st.saver=sv;st.last=now;await applyLevel(call,cap(lvl),lvl,sv)}
     if(o.onq)o.onq(st);
   },3000);
 }
-async function applyLevel(call,bps,lvl){
+async function applyLevel(call,bps,lvl,saver){
   const pc=call.peerConnection,s=pc&&pc.getSenders().find(x=>x.track&&x.track.kind==='video');if(!s)return;
   const p=s.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
-  p.encodings[0].maxBitrate=bps;p.encodings[0].scaleResolutionDownBy=LV[lvl].s;
+  let sc=LV[lvl].s;
+  if(saver){   // about 480p at 1.2 Mbps: roughly half a gigabyte an hour
+    const h=(s.track.getSettings&&s.track.getSettings().height)||vid.videoHeight||1080;
+    sc=Math.max(sc,h/480);bps=Math.min(bps,1.2e6);
+  }
+  p.encodings[0].maxBitrate=bps;p.encodings[0].scaleResolutionDownBy=sc;
   p.degradationPreference=lvl?'balanced':'maintain-framerate';
   try{await s.setParameters(p)}catch(e){}
 }
@@ -1437,7 +1456,7 @@ function gatherCands(servers,policy,ms){
   });
 }
 async function connTest(){
-  showModal('<h2>Connection check</h2><ul class="subres ct" id="ctList"></ul><p class="hint" id="ctSum">Checking… this takes about 15 seconds.</p>');
+  showModal('<h2>Connection check</h2><ul class="subres ct" id="ctList"></ul><p class="hint" id="ctSum">Checking… this takes about 20 seconds.</p>');
   const add=(k,v,cls)=>{const li=document.createElement('li');li.innerHTML='<span><b>'+esc(k)+'</b> <span class="'+cls+'">'+esc(v)+'</span></span>';$('ctList').appendChild(li)};
   let direct='unknown',relay='none',speed=0;
   const c1=await gatherCands([{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}],'all',6000);
@@ -1462,8 +1481,11 @@ async function connTest(){
   }catch(e){speed=navigator.connection&&navigator.connection.downlink||0}
   if(speed)add('Download speed:','About '+speed.toFixed(1)+' Mbps ('+(speed>=25?'enough for 4K':speed>=8?'good for 1080p':speed>=4?'fine for 720p':'low; expect lower quality')+').',speed>=8?'ok':speed>=4?'warn':'bad');
   else add('Download speed:','Could not measure.','warn');
+  let cap='';
+  try{const up=await measureUpload();add('Upload speed:','About '+up.toFixed(1)+' Mbps.',up>=10?'ok':up>=4?'warn':'bad');cap=capacityText(up)}
+  catch(e){add('Upload speed:','Could not measure.','warn');cap='Hosting needs about 6 Mbps of upload per friend for 1080p.'}
   const good=direct==='ok'||relay==='ok';
-  $('ctSum').innerHTML=(good?'<b class="ok">You should be able to join.</b> ':'<b class="bad">You may not be able to join from this network.</b> Ask your host for an invite link (it brings the relay), or try another Wi-Fi. ')+'Hosting also needs good <em>upload</em> speed (about 8 Mbps per friend for 1080p), which this check can\'t measure.';
+  $('ctSum').innerHTML=(good?'<b class="ok">You should be able to join.</b> ':'<b class="bad">You may not be able to join from this network.</b> Ask your host for an invite link (it brings the relay), or try another Wi-Fi. ')+'<br><b>Hosting:</b> '+esc(cap);
 }
 
 /* ---------- permanent room link ---------- */
@@ -1693,7 +1715,12 @@ const I18N={
 'Vote':['वोट करें','ਵੋਟ ਪਾਓ'],
 'Voted':['वोट दिया','ਵੋਟ ਪਾਈ'],
 'Watching':['देख रहे हैं','ਦੇਖ ਰਹੇ ਹਨ'],
-'Chat':['चैट','ਚੈਟ'],'People':['लोग','ਲੋਕ'],'Settings':['सेटिंग्स','ਸੈਟਿੰਗਾਂ'],'Stream quality':['स्ट्रीम क्वालिटी','ਸਟ੍ਰੀਮ ਕੁਆਲਿਟੀ'],'Auto (best for this computer)':['ऑटो (इस कंप्यूटर के लिए सबसे अच्छा)','ਆਟੋ (ਇਸ ਕੰਪਿਊਟਰ ਲਈ ਸਭ ਤੋਂ ਵਧੀਆ)'],
+'Chat':['चैट','ਚੈਟ'],'People':['लोग','ਲੋਕ'],'Settings':['सेटिंग्स','ਸੈਟਿੰਗਾਂ'],'Stream quality':['स्ट्रीम क्वालिटी','ਸਟ੍ਰੀਮ ਕੁਆਲਿਟੀ'],
+'Picture (just for you)':['पिक्चर (सिर्फ़ आपके लिए)','ਪਿਕਚਰ (ਸਿਰਫ਼ ਤੁਹਾਡੇ ਲਈ)'],'Brightness':['ब्राइटनेस','ਬ੍ਰਾਈਟਨੈੱਸ'],'Contrast':['कंट्रास्ट','ਕੰਟ੍ਰਾਸਟ'],'Colour':['रंग','ਰੰਗ'],
+'Fill the screen (crops the edges)':['पूरी स्क्रीन भरें (किनारे कटेंगे)','ਪੂਰੀ ਸਕ੍ਰੀਨ ਭਰੋ (ਕਿਨਾਰੇ ਕੱਟੇ ਜਾਣਗੇ)'],'Reset picture':['पिक्चर रीसेट करें','ਪਿਕਚਰ ਰੀਸੈੱਟ ਕਰੋ'],'Data':['डेटा','ਡਾਟਾ'],
+'Data saver: a lighter 480p picture just for me':['डेटा सेवर: सिर्फ़ मेरे लिए हल्की 480p पिक्चर','ਡਾਟਾ ਸੇਵਰ: ਸਿਰਫ਼ ਮੇਰੇ ਲਈ ਹਲਕੀ 480p ਪਿਕਚਰ'],'Alerts':['अलर्ट','ਅਲਰਟ'],
+'Tell me when friends join or send a message while I\'m in another tab':['जब मैं दूसरे टैब में हूँ, तब दोस्तों के जुड़ने या मैसेज भेजने पर बताएँ','ਜਦੋਂ ਮੈਂ ਦੂਜੇ ਟੈਬ ਵਿੱਚ ਹਾਂ, ਤਾਂ ਦੋਸਤਾਂ ਦੇ ਜੁੜਨ ਜਾਂ ਮੈਸੇਜ ਭੇਜਣ ਤੇ ਦੱਸੋ'],
+'Fix the sound here':['यहीं आवाज़ ठीक करें','ਇੱਥੇ ਹੀ ਆਵਾਜ਼ ਠੀਕ ਕਰੋ'],'Nothing used yet.':['अभी तक कुछ इस्तेमाल नहीं हुआ।','ਹਾਲੇ ਤੱਕ ਕੁਝ ਨਹੀਂ ਵਰਤਿਆ।'],'Auto (best for this computer)':['ऑटो (इस कंप्यूटर के लिए सबसे अच्छा)','ਆਟੋ (ਇਸ ਕੰਪਿਊਟਰ ਲਈ ਸਭ ਤੋਂ ਵਧੀਆ)'],
 'Send':['भेजें','ਭੇਜੋ'],
 'Say something':['कुछ कहें','ਕੁਝ ਕਹੋ'],
 'Show connection stats':['कनेक्शन की जानकारी दिखाएँ','ਕਨੈਕਸ਼ਨ ਦੀ ਜਾਣਕਾਰੀ ਦਿਖਾਓ'],
@@ -1783,7 +1810,8 @@ function contentBox(){
   const r=stage.getBoundingClientRect();let vw=16,vh=9;
   const el=mode==='link'&&link&&link.kind==='url'?lvid:vid;
   if(!(mode==='link'&&link&&link.kind==='yt')&&el.videoWidth){vw=el.videoWidth;vh=el.videoHeight}
-  const k=Math.min(r.width/vw,r.height/vh),w=vw*k,h=vh*k;
+  const fill=pic.fill&&!(mode==='link'&&link&&link.kind==='yt');
+  const k=(fill?Math.max:Math.min)(r.width/vw,r.height/vh),w=vw*k,h=vh*k;
   return{x:(r.width-w)/2,y:(r.height-h)/2,w,h,r};
 }
 function showLaser(x,y,name,col){
@@ -2062,6 +2090,332 @@ function sampleGlow(){
 }
 setInterval(sampleGlow,700);
 
+/* ================= MOVIE FILE CHECK & SOUND FIX =================
+   Downloaded movies often carry sound browsers can't play (Dolby AC3/E-AC3, DTS, TrueHD) or HEVC/AVI picture.
+   We read the file's own track list before anyone presses play, say plainly what will and won't work,
+   and can rebuild just the sound inside the browser with ffmpeg.wasm. The fixed sound then plays from a hidden
+   audio element kept in step with the picture, so the movie file itself is never re-encoded. */
+const FCODECS=[
+  // [marker in the file, label, kind, browser type to test]
+  ['V_MPEG4/ISO/AVC','H.264','v','video/mp4; codecs="avc1.640028"'],['avc1','H.264','v','video/mp4; codecs="avc1.640028"'],['avc3','H.264','v','video/mp4; codecs="avc1.640028"'],
+  ['V_MPEGH/ISO/HEVC','HEVC (H.265)','v','video/mp4; codecs="hvc1.1.6.L120.90"'],['hvc1','HEVC (H.265)','v','video/mp4; codecs="hvc1.1.6.L120.90"'],['hev1','HEVC (H.265)','v','video/mp4; codecs="hvc1.1.6.L120.90"'],
+  ['V_AV1','AV1','v','video/mp4; codecs="av01.0.08M.08"'],['av01','AV1','v','video/mp4; codecs="av01.0.08M.08"'],
+  ['V_VP9','VP9','v','video/webm; codecs="vp9"'],['vp09','VP9','v','video/webm; codecs="vp9"'],['V_VP8','VP8','v','video/webm; codecs="vp8"'],
+  ['V_MPEG2','MPEG-2','v','video/mpeg'],['V_MS/VFW/FOURCC','XviD/DivX','v','video/x-msvideo'],
+  ['A_AAC','AAC','a','audio/mp4; codecs="mp4a.40.2"'],['mp4a','AAC','a','audio/mp4; codecs="mp4a.40.2"'],
+  ['A_EAC3','Dolby Digital Plus (E-AC3)','a','audio/mp4; codecs="ec-3"'],['ec-3','Dolby Digital Plus (E-AC3)','a','audio/mp4; codecs="ec-3"'],
+  ['A_AC3','Dolby Digital (AC3)','a','audio/mp4; codecs="ac-3"'],['ac-3','Dolby Digital (AC3)','a','audio/mp4; codecs="ac-3"'],
+  ['A_DTS','DTS','a','audio/mp4; codecs="dtsc"'],['dtsc','DTS','a','audio/mp4; codecs="dtsc"'],['dtsh','DTS','a','audio/mp4; codecs="dtsc"'],['dtsl','DTS','a','audio/mp4; codecs="dtsc"'],
+  ['A_TRUEHD','Dolby TrueHD','a','audio/mp4; codecs="mlpa"'],
+  ['A_OPUS','Opus','a','audio/webm; codecs="opus"'],['Opus','Opus','a','audio/webm; codecs="opus"'],['A_VORBIS','Vorbis','a','audio/webm; codecs="vorbis"'],
+  ['A_FLAC','FLAC','a','audio/flac'],['fLaC','FLAC','a','audio/flac'],['A_MPEG/L3','MP3','a','audio/mpeg'],['A_MPEG/L2','MP2','a','audio/mpeg'],['A_PCM','PCM','a','audio/wav']
+];
+const probeEl=document.createElement('video');
+const canPlay=t=>!!t&&probeEl.canPlayType(t)!=='';
+const ascii=s=>new TextEncoder().encode(s);
+function findAll(buf,pat){const out=[];outer:for(let i=0;i<=buf.length-pat.length;i++){for(let j=0;j<pat.length;j++)if(buf[i+j]!==pat[j])continue outer;out.push(i)}return out}
+async function readSlice(f,a,b){return new Uint8Array(await f.slice(a,b).arrayBuffer())}
+async function mp4Moov(f){
+  // walk the top-level boxes; the track list ("moov") is at the start or the very end of the file
+  let off=0;
+  for(let n=0;n<64&&off+8<=f.size;n++){
+    const h=await readSlice(f,off,off+16),dv=new DataView(h.buffer);
+    let size=dv.getUint32(0);const type=String.fromCharCode(h[4],h[5],h[6],h[7]);
+    if(size===1)size=Number(dv.getBigUint64(8));else if(size===0)size=f.size-off;
+    if(size<8)return null;
+    if(type==='moov')return readSlice(f,off,off+Math.min(size,48<<20));
+    off+=size;
+  }
+  return null;
+}
+async function probeFile(f){
+  const head=await readSlice(f,0,Math.min(f.size,4<<20));
+  const sig=String.fromCharCode(...head.slice(0,12));
+  let kind='other',area=null;
+  if(head[0]===0x1a&&head[1]===0x45&&head[2]===0xdf&&head[3]===0xa3){kind='mkv';area=head}
+  else if(sig.slice(4,8)==='ftyp'){kind='mp4';area=await mp4Moov(f)}
+  else if(sig.startsWith('RIFF')&&sig.slice(8,12)==='AVI ')kind='avi';
+  const tracks=[];
+  if(area){
+    const seen=new Set();
+    for(const [mk,label,k,type] of FCODECS){
+      // short box names are only trusted inside the MP4 track list; long Matroska codec ids are unambiguous
+      if(kind==='mkv'&&mk.length<5)continue;if(kind==='mp4'&&mk.length>=5)continue;
+      for(const at of findAll(area,ascii(mk))){
+        if(mk==='A_AC3'&&area[at-1]===0x45)continue;   // part of "A_EAC3"
+        const key=k+at;if(seen.has(key))continue;seen.add(key);tracks.push({at,label,k,ok:canPlay(type)});
+      }
+    }
+    tracks.sort((a,b)=>a.at-b.at);
+  }
+  // the browser plays the first picture and the first sound track
+  return{kind,video:tracks.find(t=>t.k==='v')||null,audio:tracks.find(t=>t.k==='a')||null,anyAudio:tracks.some(t=>t.k==='a')};
+}
+// play a couple of silent seconds off-screen: the only sure way to know this browser decodes the picture and sound
+async function decodeTest(f){
+  const v=document.createElement('video'),url=URL.createObjectURL(f);v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
+  try{
+    let err=false;
+    await new Promise(res=>{v.onloadedmetadata=res;v.onerror=()=>{err=true;res()};setTimeout(res,8000)});
+    if(err)return{open:false};
+    if(!v.duration)return null;
+    try{v.currentTime=Math.min(30,v.duration/4);await v.play()}catch(e){return null}
+    const t0=performance.now();
+    while(performance.now()-t0<2500){await new Promise(r=>setTimeout(r,250));if(v.webkitAudioDecodedByteCount>0&&v.videoWidth&&v.currentTime>.6)break}
+    return{open:true,video:v.videoWidth>0,audio:'webkitAudioDecodedByteCount' in v?v.webkitAudioDecodedByteCount>0:null};
+  }finally{v.pause();v.removeAttribute('src');v.load();URL.revokeObjectURL(url)}
+}
+let fileProblem=null;   // what the last check found, so the 3-second silence check doesn't repeat it
+async function checkFile(f,elId){
+  const el=$(elId);fileProblem=null;
+  el.hidden=false;el.innerHTML='<p class="hint">Checking this file…</p>';
+  let r,real;try{[r,real]=await Promise.all([probeFile(f),decodeTest(f).catch(()=>null)])}catch(e){el.hidden=true;return}
+  // what really decoded wins over what the browser says it supports
+  if(real&&real.open){
+    if(r.video)r.video.ok=real.video;else if(!real.video)r.video={label:'this file\'s picture format',ok:false};
+    if(real.audio!==null){if(r.audio)r.audio.ok=real.audio;else if(!real.audio&&r.kind!=='mp4'&&r.kind!=='mkv')r.audio={label:'this file\'s sound format',ok:false}}
+  }
+  if(real&&!real.open&&r.kind!=='avi')r.unplayable=true;
+  const cached=await idbGet(fileKey(f)).catch(()=>null);
+  let html='';
+  if(r.kind==='avi'){
+    fileProblem='avi';
+    html='<p class="bad">✗ AVI files don\'t play in browsers.</p><p class="hint">Convert it to MP4 with the free app HandBrake (preset "Fast 1080p30").</p>';
+  }else if(r.unplayable){
+    fileProblem='video';
+    html='<p class="bad">✗ This browser can\'t open this file.</p><p class="hint">Convert it to MP4 (H.264 picture, AAC sound) with the free app HandBrake, preset "Fast 1080p30".</p>';
+  }else if(!r.video&&!r.audio){
+    el.hidden=true;return;   // couldn't read the track list: the 3-second check after play still catches silence
+  }else{
+    if(r.video&&!r.video.ok){
+      fileProblem='video';
+      html+='<p class="bad">✗ Picture: '+esc(r.video.label)+'. This browser can\'t show it, so there would be no picture.</p><p class="hint">Fix: convert it to MP4 (H.264) with the free app HandBrake, preset "Fast 1080p30". Microsoft Edge can play HEVC on many Windows computers.</p>';
+    }
+    if(r.audio&&!r.audio.ok){
+      fileProblem=fileProblem||'audio';
+      if(cached){useAux(cached.blob);html+='<p class="ok">✓ Sound: using the fixed sound saved on this device ('+esc(r.audio.label)+' converted).</p>'}
+      else html+='<p class="bad">✗ Sound: '+esc(r.audio.label)+'. Browsers can\'t play it, so the movie would be silent.</p><div class="row"><button id="fixSnd_'+elId+'">Fix the sound here</button></div><p class="hint">Takes about 5 to 10 minutes for a full movie, and you can keep using the room. The picture isn\'t touched, and the fixed sound is saved on this device for next time.</p>';
+    }else if(r.anyAudio===false&&r.video){
+      html+='<p class="hint">This file has no sound track.</p>';
+    }
+    if(!html)html='<p class="ok">✓ This file will play: picture '+esc(r.video?r.video.label:'?')+(r.audio?', sound '+esc(r.audio.label):'')+'.</p>';
+  }
+  el.innerHTML=html;
+  const b=$('fixSnd_'+elId);if(b)b.onclick=()=>fixSound(f,elId,r.audio.label);
+  if(fileProblem&&!(fileProblem==='audio'&&cached))toast(fileProblem==='audio'?'This movie\'s sound won\'t play in browsers. You can fix it in the Movie tab.':'This file has a problem. See the Movie tab.');
+}
+
+/* --- remembered fixed sound, per movie file, in this browser --- */
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('couchcast',1);r.onupgradeneeded=()=>r.result.createObjectStore('sound');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function idbGet(k){const db=await idb();return new Promise((res,rej)=>{const q=db.transaction('sound').objectStore('sound').get(k);q.onsuccess=()=>res(q.result||null);q.onerror=()=>rej(q.error)})}
+async function idbPut(k,blob){
+  const db=await idb();
+  const keys=await new Promise(res=>{const q=db.transaction('sound').objectStore('sound').getAllKeys();q.onsuccess=()=>res(q.result||[]);q.onerror=()=>res([])});
+  const all=await Promise.all(keys.map(async kk=>({kk,v:await idbGet(kk)})));
+  all.sort((a,b)=>(a.v&&a.v.at||0)-(b.v&&b.v.at||0));
+  const tx=db.transaction('sound','readwrite'),st=tx.objectStore('sound');
+  while(all.length>=2)st.delete(all.shift().kk);   // keep the two most recent movies
+  st.put({blob,at:Date.now()},k);
+  return new Promise(res=>{tx.oncomplete=res;tx.onerror=res});
+}
+
+/* --- the converter --- */
+const FF_CORE='https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/';
+let ffScript=null,fixJob=null;
+function loadFFScript(){
+  if(!ffScript)ffScript=new Promise((res,rej)=>{if(window.FFmpegWASM)return res();const s=document.createElement('script');s.src='vendor/ffmpeg/ffmpeg.js';s.onload=res;s.onerror=()=>{ffScript=null;rej(new Error('The converter could not load.'))};document.head.appendChild(s)});
+  return ffScript;
+}
+async function fetchBlobURL(url,type,onp){
+  const r=await fetch(url);if(!r.ok)throw new Error('download failed ('+r.status+')');
+  const total=+r.headers.get('content-length')||0;
+  if(!r.body||!total||!onp)return URL.createObjectURL(new Blob([await r.arrayBuffer()],{type}));
+  const rd=r.body.getReader(),parts=[];let got=0;
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;onp(got/total)}
+  return URL.createObjectURL(new Blob(parts,{type}));
+}
+async function fixSound(f,elId,label){
+  if(fixJob)return toast('Already fixing a sound track.');
+  const el=$(elId),job={stopped:false,ff:null};fixJob=job;
+  el.innerHTML='<p>Fixing the sound ('+esc(label)+' → AAC)…</p><div class="prog"><i id="fixBar"></i></div><p class="hint" id="fixMsg">Getting the converter ready…</p><div class="row"><button class="ghost small" id="fixStop">Stop</button></div>';
+  const bar=p=>{const b=$('fixBar');if(b)b.style.width=Math.round(Math.max(0,Math.min(1,p))*100)+'%'},msg=t=>{const m=$('fixMsg');if(m)m.textContent=t};
+  $('fixStop').onclick=()=>{job.stopped=true;try{job.ff&&job.ff.terminate()}catch(e){}};
+  try{
+    await loadFFScript();
+    const coreURL=await fetchBlobURL(FF_CORE+'ffmpeg-core.js','text/javascript');
+    const wasmURL=await fetchBlobURL(FF_CORE+'ffmpeg-core.wasm','application/wasm',p=>{bar(p);msg('Downloading the converter: '+Math.round(p*31)+' of 31 MB (only the first time)…')});
+    if(job.stopped)throw new Error('stopped');
+    const ff=new window.FFmpegWASM.FFmpeg();job.ff=ff;
+    let dur=isFinite(vid.duration)?vid.duration:0;const t0=performance.now();
+    ff.on('log',({message})=>{
+      const d=/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);if(d&&!dur)dur=+d[1]*3600+ +d[2]*60+ +d[3];
+      const m=/time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);
+      if(m&&dur){const t=+m[1]*3600+ +m[2]*60+ +m[3],p=t/dur;bar(p);const el2=(performance.now()-t0)/1000,left=p>.02?el2/p-el2:0;msg('Converting the sound: '+Math.round(p*100)+'%'+(left?', about '+(left>90?Math.round(left/60)+' min':Math.round(left)+' s')+' left':'')+'. You can keep using the room.')}
+    });
+    bar(0);msg('Starting…');
+    await ff.load({coreURL,wasmURL});
+    await ff.createDir('/in');await ff.mount('WORKERFS',{files:[f]},'/in');
+    const rc=await ff.exec(['-hide_banner','-i','/in/'+f.name,'-map','0:a:0','-vn','-sn','-dn','-af','aformat=channel_layouts=5.1|stereo|mono','-c:a','aac','-b:a','256k','-movflags','+faststart','/out.m4a']);
+    if(rc!==0)throw new Error('the converter stopped with an error ('+rc+')');
+    const data=await ff.readFile('/out.m4a');
+    try{ff.terminate()}catch(e){}
+    const blob=new Blob([data.buffer],{type:'audio/mp4'});
+    await idbPut(fileKey(f),blob).catch(()=>{});
+    useAux(blob);fileProblem=null;
+    el.innerHTML='<p class="ok">✓ Sound fixed. Everyone will hear it, and it\'s saved on this device for next time.</p>';
+    toast('Sound fixed');if(isHost)addChat('','The movie\'s sound was fixed. Everyone can hear it now.',true);
+  }catch(e){
+    try{job.ff&&job.ff.terminate()}catch(e2){}
+    el.innerHTML=job.stopped?'<p class="hint">Stopped. The movie will stay silent until the sound is fixed.</p><div class="row"><button id="fixSnd_'+elId+'">Fix the sound here</button></div>'
+      :'<p class="bad">Couldn\'t fix the sound: '+esc(e.message||String(e))+'.</p><p class="hint">This can happen with very large files on phones. Try on a computer, or convert the file with HandBrake.</p><div class="row"><button id="fixSnd_'+elId+'">Try again</button></div>';
+    const b=$('fixSnd_'+elId);if(b)b.onclick=()=>fixSound(f,elId,label);
+  }finally{fixJob=null}
+}
+
+/* --- play the fixed sound in step with the picture --- */
+const aux=new Audio();aux.preload='auto';
+let auxOn=false,auxSrc=null,auxUrl='';
+function useAux(blob){
+  stopAux();
+  auxUrl=URL.createObjectURL(blob);aux.src=auxUrl;auxOn=true;
+  if(getAC()){
+    if(!auxSrc)auxSrc=ac.createMediaElementSource(aux);
+    try{auxSrc.disconnect()}catch(e){}
+    const to=isHost?(ensureMix()&&mix.pre):(ensureViewerChain()&&vchain.input);
+    if(to)auxSrc.connect(to);
+  }
+  auxFollow();
+}
+function stopAux(){if(!auxOn&&!auxUrl)return;auxOn=false;aux.pause();if(auxUrl){URL.revokeObjectURL(auxUrl);auxUrl=''}aux.removeAttribute('src');try{aux.load()}catch(e){}}
+function auxFollow(){
+  if(!auxOn)return;
+  aux.playbackRate=vid.playbackRate||1;
+  if(Math.abs(aux.currentTime-vid.currentTime)>.25)aux.currentTime=vid.currentTime;
+  if(vid.paused||vid.seeking||vid.readyState<3)aux.pause();else aux.play().catch(()=>{});
+}
+['play','pause','seeking','seeked','ratechange','waiting','playing','canplay'].forEach(ev=>vid.addEventListener(ev,auxFollow));
+setInterval(()=>{
+  if(!auxOn||vid.paused||aux.paused)return;
+  const d=aux.currentTime-vid.currentTime,r=vid.playbackRate||1;
+  if(Math.abs(d)>.3){aux.currentTime=vid.currentTime;aux.playbackRate=r}
+  else if(Math.abs(d)>.03)aux.playbackRate=r*(d>0?.97:1.03);   // nudge gently instead of jumping
+  else aux.playbackRate=r;
+},400);
+
+/* ================= DATA: SAVER, METER, UPLOAD CHECK ================= */
+const data={bytes:0,last:new Map(),hist:[]};
+function fmtGB(b){return b>=1e9?(b/1e9).toFixed(2)+' GB':Math.round(b/1e6)+' MB'}
+async function dataTick(){
+  if(!inRoom())return;
+  const pcs=[];
+  if(isHost){for(const c of conns.values())if(c.call&&c.call.peerConnection)pcs.push(c.call.peerConnection)}
+  else{if(inCall&&inCall.peerConnection)pcs.push(inCall.peerConnection);for(const o of relayKids.values())if(o.call&&o.call.peerConnection)pcs.push(o.call.peerConnection)}
+  let add=0;
+  for(const pc of pcs){
+    let tot=0;
+    try{(await pc.getStats()).forEach(x=>{if(x.type==='inbound-rtp'||x.type==='outbound-rtp')tot+=(x.bytesReceived||0)+(x.bytesSent||0)})}catch(e){continue}
+    const prev=data.last.get(pc)||0;if(tot>=prev)add+=tot-prev;data.last.set(pc,tot);
+  }
+  data.bytes+=add;const now=performance.now();data.hist.push([now,data.bytes]);while(data.hist.length&&now-data.hist[0][0]>30000)data.hist.shift();
+  const [t0,b0]=data.hist[0]||[now,data.bytes],rate=now-t0>8000?(data.bytes-b0)/((now-t0)/1000):0;
+  let line;
+  if(!isHost&&mode!=='stream')line=mode==='link'?'This video plays straight from '+(link&&link.kind==='yt'?'YouTube':'its website')+', so its data use depends on that site\'s quality.':'You\'re playing your own copy, so the movie uses no data. Only chat and voice do.';
+  else if(!data.bytes)line='Nothing used yet.';
+  else line=(isHost?'Sent to friends so far: ':'Used so far: ')+fmtGB(data.bytes)+(rate>0?'. At the moment that\'s about '+fmtGB(rate*3600)+' an hour'+(isHost&&conns.size>1?' (for everyone together)':'')+'.':'.');
+  $('dataLine').textContent=line;
+}
+setInterval(dataTick,5000);
+function sendSaver(){if(!isHost&&hostConn&&hostConn.open)hostConn.send({t:'saver',on:$('saverOn').checked})}
+
+// upload check, in plain words: how many friends can this connection feed?
+async function measureUpload(){
+  const size=6e6,body=new Uint8Array(size);crypto.getRandomValues(body.subarray(0,65536));
+  const t0=performance.now();
+  const r=await fetch('https://speed.cloudflare.com/__up',{method:'POST',body,cache:'no-store',mode:'cors'});
+  if(!r.ok)throw new Error('upload test failed');await r.text();
+  return size*8/((performance.now()-t0)/1000)/1e6;
+}
+function capacityText(up){
+  const n=r=>Math.max(0,Math.floor(up*.75/r));
+  const f4=n(20),f10=n(6),f7=n(3);
+  if(f10<1&&f7<1)return 'That\'s too slow to host from here. Ask a friend with faster internet to host, or use "everyone has the file".';
+  return 'You can host about '+(f4?f4+' friend'+(f4>1?'s':'')+' in 4K, ':'')+(f10?f10+' in 1080p, ':'')+'or '+f7+' in 720p. More can join when friends help pass the movie on.';
+}
+
+/* ================= PICTURE: BRIGHTNESS, FILL, TURN YOUR PHONE ================= */
+const pic={bri:100,con:100,sat:100,fill:false};
+try{Object.assign(pic,JSON.parse(store.get('cc-pic')||'{}'))}catch(e){}
+function applyPic(save){
+  const f=(pic.bri!==100||pic.con!==100||pic.sat!==100)?'brightness('+pic.bri/100+') contrast('+pic.con/100+') saturate('+pic.sat/100+')':'';
+  [vid,lvid,$('ytbox')].forEach(e=>{e.style.filter=f});
+  stage.classList.toggle('fill',!!pic.fill);$('fillBtn').classList.toggle('on',!!pic.fill);$('fillOn').checked=!!pic.fill;
+  [['picBri','bri'],['picCon','con'],['picSat','sat']].forEach(([id,k])=>{$(id).value=pic[k];$(id+'Out').textContent=pic[k]+'%'});
+  if(save)store.set('cc-pic',JSON.stringify(pic));
+}
+function setFill(on){pic.fill=on;applyPic(true);toast(on?'Filling the screen (edges cropped)':'Showing the whole picture')}
+// turning a phone sideways makes the movie fill the screen
+const landMQ=matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 520px)');
+function landCheck(){
+  const on=landMQ.matches&&inRoom()&&!document.body.classList.contains('tv');
+  document.body.classList.toggle('land',on);
+  if(on&&!document.fullscreenElement&&navigator.userActivation&&navigator.userActivation.isActive)stage.requestFullscreen&&stage.requestFullscreen().catch(()=>{});
+}
+landMQ.addEventListener?landMQ.addEventListener('change',landCheck):landMQ.addListener(landCheck);
+
+/* ================= RESUME LINKS, ALERTS, BATTERY ================= */
+const linkKey=l=>l?(l.kind==='yt'?'yt:'+l.id:'url:'+l.url).slice(0,300):'';
+setInterval(()=>{
+  if(!isHost||mode!=='link'||!link||!M.ok()||M.paused())return;
+  const t=M.time(),d=M.dur(),k='cc-pos-'+linkKey(link);
+  if(d&&t>30&&d-t>90)store.set(k,Math.floor(t));else if(d&&d-t<=90)store.del(k);
+},5000);
+let resumeAsked='';
+function offerLinkResume(){
+  if(!isHost||!link)return;const k=linkKey(link);if(resumeAsked===k)return;resumeAsked=k;
+  const saved=+store.get('cc-pos-'+k)||0,d=M.dur();
+  if(saved<=30||(d&&saved>=d-60))return;
+  M.pause();
+  overlay('<p>Continue from '+fmt(saved)+'?</p><div class="row" style="justify-content:center"><button id="resumeYes">Continue</button><button class="ghost" id="resumeNo">Start over</button></div>');
+  const done=()=>{overlay('');broadcast(state())};
+  $('resumeYes').onclick=()=>{M.seek(saved);done()};
+  $('resumeNo').onclick=()=>{store.del('cc-pos-'+k);M.seek(0);done()};
+  $('resumeYes').focus();
+}
+// alerts while you're in another tab
+let lastAlert=0,alertQ=[],alertT=null;
+function notify(text){
+  if(!$('notifyOn').checked||!document.hidden||!('Notification' in window)||Notification.permission!=='granted')return;
+  alertQ.push(text);if(alertT)return;
+  // group bursts into one alert instead of dropping them
+  const wait=Math.max(0,4000-(Date.now()-lastAlert));
+  alertT=setTimeout(async()=>{
+    alertT=null;const q=alertQ.splice(0);if(!q.length||!document.hidden)return;lastAlert=Date.now();
+    const body=q.length===1?q[0]:q.slice(-3).join('\n')+(q.length>3?'\n…and '+(q.length-3)+' more':'');
+    const o={body,tag:'couchcast',renotify:true,icon:'icon-192.png',badge:'icon-192.png'};
+    try{const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();if(reg){reg.showNotification('Couchcast',o);return}}catch(e){}
+    try{new Notification('Couchcast',o)}catch(e){}
+  },wait);
+}
+// low battery: the host (or a friend passing the movie on) warns the room before the stream dies
+let battWarned=1;
+async function watchBattery(){
+  if(!navigator.getBattery)return;
+  try{
+    const b=await navigator.getBattery();
+    const check=()=>{
+      if(!inRoom())return;
+      if(b.charging){battWarned=1;return}
+      const lv=b.level,step=lv<=.07?.07:lv<=.15?.15:1;
+      if(step>=battWarned)return;battWarned=step;
+      const pct=Math.round(lv*100);
+      if(isHost){const m='The host\'s battery is at '+pct+'% and not charging. The movie stops if it runs out.';addChat('',m,true);broadcast({t:'chat',n:'Couchcast',m});toast('Battery '+pct+'%: plug in to keep the movie going')}
+      else if(relayKids.size&&hostConn&&hostConn.open){hostConn.send({t:'batt',p:pct});toast('Battery '+pct+'%: friends are watching through you')}
+    };
+    b.addEventListener('levelchange',check);b.addEventListener('chargingchange',check);setInterval(check,60000);check();
+  }catch(e){}
+}
+watchBattery();
+
 /* ================= PLAYER ================= */
 function localPlayer(){return isHost||((mode==='sync'||mode==='link')&&M.ok())}
 function curTime(){
@@ -2281,6 +2635,22 @@ $('chat').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.ta
 $('couch').addEventListener('click',e=>{const b=e.target.closest('.seat');if(b)pickSeat(+b.dataset.seat)});
 $('spinBtn').onclick=spinRequest;
 document.querySelectorAll('.tabs [data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+[['picBri','bri'],['picCon','con'],['picSat','sat']].forEach(([id,k])=>{$(id).oninput=()=>{pic[k]=+$(id).value;applyPic(true)}});
+$('picReset').onclick=()=>{Object.assign(pic,{bri:100,con:100,sat:100,fill:false});applyPic(true)};
+$('fillOn').onchange=()=>setFill($('fillOn').checked);
+$('fillBtn').onclick=()=>setFill(!pic.fill);
+$('saverOn').checked=store.get('cc-saver')==='on';
+$('saverOn').onchange=()=>{store.set('cc-saver',$('saverOn').checked?'on':'off');sendSaver();toast($('saverOn').checked?'Data saver on: lighter picture just for you':'Data saver off')};
+$('notifyOn').checked=store.get('cc-notify')==='on'&&'Notification' in window&&Notification.permission==='granted';
+$('notifyOn').onchange=async()=>{
+  if($('notifyOn').checked){
+    if(!('Notification' in window)){toast('This browser can\'t show alerts.');$('notifyOn').checked=false;return}
+    const p=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+    if(p!=='granted'){$('notifyOn').checked=false;toast('Alerts are blocked. Allow notifications for this site in your browser settings.');return}
+  }
+  store.set('cc-notify',$('notifyOn').checked?'on':'off');
+};
+applyPic(false);
 $('chatBtn').addEventListener('click',()=>{unread=0;drawBadge()});
 $('fsChat').onsubmit=e=>{e.preventDefault();sendChat($('fsMsg').value);$('fsMsg').value='';closeFsChat()};
 $('fsMsg').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeFsChat()}});
@@ -2347,6 +2717,7 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Enter'&&document.fullscreenElement===stage){e.preventDefault();openFsChat()}
   else if(e.key==='f')toggleFs();
   else if(e.key==='l'||e.key==='L')setLaser(!laserOn);
+  else if(e.key==='z'||e.key==='Z')setFill(!pic.fill);
   else if(e.key==='m')$('muteBtn').click();
   else if(e.key==='c')$('ccBtn').click();
   else if(e.key==='ArrowRight'&&document.activeElement.type!=='range'){e.preventDefault();seekTo(curTime()+10)}

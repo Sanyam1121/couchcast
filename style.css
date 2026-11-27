@@ -362,3 +362,27 @@ body.tv #seek{height:28px}
   #langSel{max-width:96px}
   .ticket .code{font-size:30px}
 }
+
+/* movie file check and sound fix */
+.fcheck{margin-top:12px;background:var(--well);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14.5px}
+.fcheck[hidden]{display:none}
+.fcheck p{margin:4px 0}
+.fcheck .ok{color:var(--green)}.fcheck .bad{color:#ff8a8a}
+.fcheck .row{margin:8px 0 4px}
+.prog{height:8px;background:#ffffff14;border-radius:99px;overflow:hidden;margin:8px 0}
+.prog i{display:block;height:100%;width:0;background:var(--lamp);border-radius:99px;transition:width .4s}
+
+/* per-person picture settings */
+#pictureBox label output{color:var(--ink);font-variant-numeric:tabular-nums;margin-left:4px}
+#pictureBox input[type=range]{margin:0 0 2px}
+.stage.fill video,.stage.fill #lvid{object-fit:cover}
+#fillBtn.on{color:var(--lamp)}
+#dataLine{margin-top:6px}
+
+/* phone turned sideways: the movie takes the whole screen */
+body.land header,body.land .side,body.land .under,body.land .couch,body.land .nowbar,body.land .glow{display:none}
+body.land main{padding:0;max-width:none}
+body.land #room{display:block}
+body.land .stage{position:fixed;inset:0;border-radius:0;aspect-ratio:auto;z-index:50;box-shadow:none}
+body.land .tvchat{display:flex;top:auto;bottom:70px}
+body.land #chatBtn{display:block}
