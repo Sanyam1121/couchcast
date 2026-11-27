@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0b0a0d">
+<meta name="theme-color" content="#12101f">
 <meta name="description" content="Watch movies together with friends, in sync, with voice chat. Free and peer-to-peer.">
 <title>Couchcast – watch movies together</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,7 +13,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 /* ===== SETTINGS YOU CAN EDIT =====
@@ -25,17 +26,20 @@
 window.COUCHCAST_TURN_API = "";
 window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
 </script>
-<link rel="stylesheet" href="style.css?v=20261127d">
+<link rel="stylesheet" href="style.css?v=20261128a">
 </head>
 <body>
 <header>
-  <div class="logo">Couch<b>cast</b></div><div class="bulbs" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="logo"><svg class="mark" viewBox="0 0 32 24" aria-hidden="true"><rect x="3" y="1" width="26" height="15" rx="3" class="scr"/><path d="M2 14a3 3 0 0 1 6 0v3h16v-3a3 3 0 0 1 6 0v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" class="sofa"/></svg><span>Couch<b>cast</b></span></div>
   <div class="hdr"><select id="langSel" aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="pa">ਪੰਜਾਬੀ</option></select><button class="ghost" id="installBtn">Install app</button><button class="ghost" id="leaveBtn">Leave room</button></div>
 </header>
 <main>
   <section id="lobby">
-    <h1>Movie night, no matter where everyone is.</h1>
-    <p class="sub">One friend hosts and plays a movie from their computer. Everyone else joins with a code or link and watches in sync, with voice chat, reactions and subtitles. Video goes straight between your devices: no account, no upload, free.</p>
+    <div class="hero">
+      <div class="intro">
+        <h1>Movie night, no matter where everyone is.</h1>
+        <p class="sub">One friend hosts and plays a movie from their computer. Everyone else joins with a code or link and watches in sync, with voice chat, reactions and subtitles. Video goes straight between your devices: no account, no upload, free.</p>
+      </div>
     <div id="nightSec">
       <div class="nightcard">
         <p class="hint" style="margin:0">You're invited to a movie night</p>
@@ -47,30 +51,34 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <p class="hint" id="nightMsg" role="status"></p>
       </div>
     </div>
-    <label for="name">Your name</label>
-    <input id="name" type="text" maxlength="24" placeholder="e.g. Sanyam" style="max-width:340px" autocomplete="nickname">
-    <label>Your avatar and name colour</label>
-    <div class="row"><div id="avPick" class="pick" role="group" aria-label="Avatar"></div><div id="colPick" class="pick" role="group" aria-label="Name colour"></div></div>
-    <div class="cards" style="margin-top:18px">
-      <div class="card"><h2>Host a room</h2><p>You pick the movie and control playback. Best on Chrome or Edge on a computer.</p><button id="hostBtn">Create room</button>
+      <div class="you">
+        <label for="name">Your name</label>
+        <input id="name" type="text" maxlength="24" placeholder="e.g. Sanyam" autocomplete="nickname">
+        <label>Your avatar and name colour</label>
+        <div id="avPick" class="pick" role="group" aria-label="Avatar"></div>
+        <div id="colPick" class="pick cols" role="group" aria-label="Name colour"></div>
+      </div>
+    </div>
+    <div class="cards">
+      <div class="card host"><h2>Host a room</h2><p>You pick the movie and control playback. Best on Chrome or Edge on a computer.</p><button id="hostBtn">Create room</button>
         <label class="check"><input type="checkbox" id="permRoom"> Use my permanent room link</label>
         <p class="hint" id="permInfo" style="display:none"><span id="permLink"></span> <button class="ghost small" id="permCopy">Copy</button></p>
       </div>
-      <div class="card"><h2>Join a room</h2><p>Type the code your host sent, or just open their invite link.</p>
+      <div class="card join"><h2>Join a room</h2><p>Type the code your host sent, or just open their invite link.</p>
         <div class="row" style="flex-wrap:nowrap"><input id="joinCode" type="text" maxlength="6" placeholder="ABC123" style="flex:1;text-transform:uppercase" autocomplete="off"><button id="joinBtn">Join</button></div>
         <label for="joinPw">Room password (only if the host set one)</label>
         <input id="joinPw" type="password" autocomplete="off" placeholder="Leave empty if none">
       </div>
-      <div class="card"><h2>Plan a movie night</h2><p>Pick a time and share a link with a countdown. Friends can add it to their calendar.</p>
+      <div class="card plan"><h2>Plan a movie night</h2><p>Pick a time and share a link with a countdown. Friends can add it to their calendar.</p>
         <label for="planTitle">What are you watching?</label><input id="planTitle" type="text" maxlength="60" placeholder="e.g. Interstellar">
-        <label for="planWhen">When</label><input id="planWhen" type="datetime-local" style="width:100%;min-height:44px;background:#0e0d11;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit">
+        <label for="planWhen">When</label><input id="planWhen" type="datetime-local">
         <div class="row" style="margin-top:12px"><button id="planBtn">Create invite</button></div>
         <p class="hint" id="planMsg"></p>
         <ul class="nights" id="nights"></ul>
       </div>
     </div>
     <p class="hint" id="lobbyMsg" role="status"></p>
-    <div class="row" style="margin-top:6px"><button class="ghost" id="ctBtn">Test my connection</button><span class="hint" style="margin:0">Check before movie night whether you can connect and how fast your internet is.</span></div>
+    <div class="row tools"><button class="ghost" id="ctBtn">Test my connection</button><span class="hint" style="margin:0">Check before movie night whether you can connect and how fast your internet is.</span></div>
     <details>
       <summary>Connection settings (if a friend can't connect)</summary>
       <div class="box">
@@ -102,7 +110,9 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
   </section>
 
   <section id="room">
-    <div>
+    <div class="screencol">
+      <div class="nowbar"><span class="now" id="now"></span></div>
+      <div class="screen"><div class="glow" id="glow" aria-hidden="true"></div>
       <div class="stage" id="stage">
         <video id="vid" playsinline></video>
         <div id="ytbox"></div>
@@ -139,7 +149,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
           <button id="tvBtn" aria-label="TV mode"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v2h8v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z"/></svg></button>
           <button id="fsBtn" aria-label="Fullscreen"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
         </div>
-      </div>
+      </div></div>
       <div class="under">
         <button class="react" data-e="😂" aria-label="Laugh">😂</button>
         <button class="react" data-e="😱" aria-label="Shocked">😱</button>
@@ -154,19 +164,32 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
             <label class="sfxon"><input type="checkbox" id="sfxOn"> <span>Hear soundboard sounds</span></label>
             <input type="range" id="sfxVol" min="0" max="1" step="0.05" aria-label="Soundboard volume">
           </div></span>
-        <span class="now" id="now"></span>
       </div>
       <div class="couch" id="couch" aria-label="The couch: tap a free seat to sit there"></div>
     </div>
 
     <aside class="side">
-      <div class="box">
+      <div class="box ticket">
         <h3>Invite friends</h3>
-        <div class="row"><span class="code" id="codeOut">——</span></div>
+        <div class="stub"><span class="code" id="codeOut">——</span></div>
         <div class="row" style="margin-top:10px"><button class="ghost" id="copyLink">Copy invite link</button><button class="ghost" id="copyCode">Copy code</button><button class="ghost" id="remoteBtn">Phone remote</button></div>
         <p class="hint" id="statusLine" role="status"></p>
       </div>
-
+      <nav class="tabs" role="tablist" aria-label="Room panels">
+        <button role="tab" data-tab="chat" class="on" aria-selected="true">Chat<span class="badge" id="chatBadge"></span></button>
+        <button role="tab" data-tab="people" aria-selected="false">People<span class="cnt" id="peopleCnt"></span></button>
+        <button role="tab" data-tab="movie" aria-selected="false">Movie</button>
+        <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+      </nav>
+      <div class="tabp on" data-p="chat" role="tabpanel">
+      <div class="box chatbox">
+        <h3>Chat</h3>
+        <div id="chat" aria-live="polite"></div>
+        <form id="chatForm" class="row" style="flex-wrap:nowrap"><button type="button" class="ghost" id="spoilBtn" aria-pressed="false" title="Send as a spoiler (hidden until tapped). You can also wrap words in ||double bars||.">🙈</button><input id="msg" type="text" maxlength="300" placeholder="Say something" autocomplete="off" style="flex:1"><button>Send</button></form>
+      </div>
+      </div>
+      <div class="tabp" data-p="people" role="tabpanel">
+      <div class="box"><h3>Watching</h3><div class="people" id="people"></div></div>
       <div class="box">
         <h3>Voice chat</h3>
         <button id="voiceBtn">Join voice chat</button>
@@ -180,7 +203,8 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <div class="row" style="margin-top:10px"><button class="ghost" id="camBtn">Turn on camera</button></div>
         <label class="check"><input type="checkbox" id="showCams" checked> Show camera bubbles</label>
       </div>
-
+      </div>
+      <div class="tabp" data-p="movie" role="tabpanel">
       <div class="box" id="hostBox" style="display:none">
         <h3>Movie</h3>
         <div class="seg"><button id="mStream" class="on">Stream</button><button id="mSync">Everyone has the file</button><button id="mLink">A link</button></div>
@@ -206,7 +230,7 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <label class="check"><input type="checkbox" id="clearDlg" checked> Clearer dialogue (lift voices, tame loud music)</label>
         <label class="check"><input type="checkbox" id="hostSound" checked> Play sound on this computer</label>
         <p class="hint" style="margin-top:0">Friends always get the sound. Turn this off when testing with a friend tab on the same computer.</p>
-        <div id="quality">
+        <details class="fold"><summary>Stream quality</summary><div id="quality">
           <label for="mbps">Max quality per friend: <span id="mbpsOut">25</span> Mbps</label>
           <input id="mbps" type="range" min="4" max="80" step="1" value="25">
           <div class="row" style="flex-wrap:nowrap">
@@ -216,23 +240,28 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
           <label for="maxDirect">Send straight to up to</label>
           <select id="maxDirect"><option value="1">1 friend</option><option value="2">2 friends</option><option value="3" selected>3 friends</option><option value="4">4 friends</option><option value="6">6 friends</option><option value="99">Everyone</option></select>
           <p class="hint">4K needs about 20–40 Mbps of upload <em>per friend</em>. 1080p is fine at 8–12. Beyond the limit above, friends with good internet pass the stream on to the others. Quality drops on its own for a friend whose connection struggles.</p>
-        </div>
+        </div></details>
       </div>
-
-      <div class="box" id="roomBox" style="display:none">
-        <h3>Room</h3>
-        <label for="roomPw">Password for new people (optional)</label>
-        <input id="roomPw" type="text" autocomplete="off" placeholder="No password">
-        <label class="check"><input type="checkbox" id="lockRoom"> Lock room (no one new can join)</label>
-      </div>
-
       <div class="box" id="viewerBox" style="display:none">
         <h3>Your copy of the movie</h3>
         <p class="hint" style="margin:0 0 10px">The host chose "everyone has the file". Pick the same movie (or several, for a series night). It follows the host and switches on its own when the host moves to the next one.</p>
         <input id="vfile" type="file" accept="video/*,.mkv,.mov,.m4v,.webm" multiple>
         <p class="hint" id="matchMsg" role="status"></p>
       </div>
-
+      <div class="box" id="upNextBox" style="display:none"><h3>Up next &amp; watchlist</h3><ul class="queue votes" id="upNext"></ul>
+        <div class="row" style="margin-top:10px;align-items:center;gap:10px"><button class="ghost" id="spinBtn">🎡 Spin the wheel</button><span class="hint" style="margin:0">Spin the watchlist to pick tonight's movie.</span></div>
+        <form id="suggestForm" class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="suggestIn" type="text" maxlength="60" placeholder="Add to the watchlist" autocomplete="off" style="flex:1"><button class="ghost">Add</button></form>
+        <p class="hint">The watchlist is kept on the host's device, so it's still there next movie night.</p>
+      </div>
+      <div class="box" id="momentsBox" style="display:none"><h3>Best moments</h3><ul class="queue moments" id="moments"></ul></div>
+      </div>
+      <div class="tabp" data-p="settings" role="tabpanel">
+      <div class="box" id="roomBox" style="display:none">
+        <h3>Room</h3>
+        <label for="roomPw">Password for new people (optional)</label>
+        <input id="roomPw" type="text" autocomplete="off" placeholder="No password">
+        <label class="check"><input type="checkbox" id="lockRoom"> Lock room (no one new can join)</label>
+      </div>
       <div class="box" id="mySoundBox" style="display:none">
         <h3>Your sound</h3>
         <label class="check"><input type="checkbox" id="vClear"> Clearer dialogue</label>
@@ -241,29 +270,14 @@ window.COUCHCAST_TURN = { urls: "", username: "", credential: "" };
         <p class="hint">If voices come before lips move, slide right until they match.</p>
         <label class="check"><input type="checkbox" id="helpShare"> Help pass the stream on to other friends</label>
       </div>
-
-      <div class="box" id="momentsBox" style="display:none"><h3>Best moments</h3><ul class="queue moments" id="moments"></ul></div>
-
-      <div class="box" id="upNextBox" style="display:none"><h3>Up next &amp; watchlist</h3><ul class="queue votes" id="upNext"></ul>
-        <div class="row" style="margin-top:10px;align-items:center;gap:10px"><button class="ghost" id="spinBtn">🎡 Spin the wheel</button><span class="hint" style="margin:0">Spin the watchlist to pick tonight's movie.</span></div>
-        <form id="suggestForm" class="row" style="flex-wrap:nowrap;margin-top:10px"><input id="suggestIn" type="text" maxlength="60" placeholder="Add to the watchlist" autocomplete="off" style="flex:1"><button class="ghost">Add</button></form>
-        <p class="hint">The watchlist is kept on the host's device, so it's still there next movie night.</p>
-      </div>
-
-      <div class="box"><h3>Watching</h3><div class="people" id="people"></div></div>
-
-      <div class="box">
-        <h3>Chat</h3>
-        <div id="chat" aria-live="polite"></div>
-        <form id="chatForm" class="row" style="flex-wrap:nowrap"><button type="button" class="ghost" id="spoilBtn" aria-pressed="false" title="Send as a spoiler (hidden until tapped). You can also wrap words in ||double bars||.">🙈</button><input id="msg" type="text" maxlength="300" placeholder="Say something" autocomplete="off" style="flex:1"><button>Send</button></form>
-      </div>
       <button class="ghost" id="statsBtn">Show connection stats</button>
+      </div>
     </aside>
   </section>
 </main>
 <div class="modal" id="modal" role="dialog" aria-modal="true"><div class="sheet"><div id="modalBody"></div><button class="ghost" id="modalClose" style="margin-top:8px">Close</button></div></div>
 <div id="toast" role="alert"></div>
 
-<script src="app.js?v=20261127d"></script>
+<script src="app.js?v=20261128a"></script>
 </body>
 </html>

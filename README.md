@@ -38,6 +38,7 @@ Watch movies together with friends. One person hosts and plays a movie file from
 - **Movie roulette** — press **🎡 Spin the wheel** under *Up next & watchlist*. A wheel of everything on the list spins on everyone's screen, with ticking sounds, and lands on tonight's movie. The host can play it right away if it's in the queue.
 - **Spoiler shield** — press 🙈 before sending, wrap words in `||double bars||`, or start a message with "spoiler", and it stays blurred until each person taps it. On the TV and fullscreen chat it only shows "🙈 spoiler".
 - **Couch seats** — a sofa under the player shows everyone's avatar. Everyone gets a seat when they join; tap a free seat to move. Reactions and soundboard sounds pop up above the seat of whoever sent them, and the seat glows when they talk.
+- **New look** — an indigo "living room after dark" design with warm lamp-amber buttons. The glow around the player takes the colours of the movie that's playing. The invite code is shown as a ticket, and the side panel is split into Chat, People, Movie and Settings tabs, with an unread count on Chat.
 
 ## If a friend can't connect (stuck at "Connecting…")
 Some networks (Jio, Airtel, mobile hotspots, office Wi-Fi) block direct connections between two devices. Couchcast says so after 15 seconds instead of waiting forever. The fix is a relay server (a free ExpressTURN account gives 1 TB a month):
